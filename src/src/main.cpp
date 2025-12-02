@@ -1,7 +1,7 @@
 #include "main.h"
 
-TwoWire FUCKASS(PB9, PB8);  // I2C2: SDA, SCL
-BME280 bme280(0x76, &FUCKASS);
+TwoWire I2CBus(PB9, PB8);  // I2C2: SDA, SCL
+BME280 bme280(0x76, &I2CBus);
 unsigned long delayTime;
 
 void setup() {
