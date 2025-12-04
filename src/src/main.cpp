@@ -1,35 +1,42 @@
 #include "main.h"
+#include "pins.h"
 
-TwoWire I2CBus(PB9, PB8);  // I2C2: SDA, SCL
-BME280 bme280(0x76, &I2CBus);
-unsigned long delayTime;
+int main(void) {
+    init();
 
-void setup() {
-    pinMode(PA5, OUTPUT); // Initialize LED pin FIRST
-    
-    // Blink to show we entered setup
-    for(int i = 0; i < 5; i++) {
-        digitalWrite(PA5, HIGH);
-        delay(200);
-        digitalWrite(PA5, LOW);
-        delay(200);
-    }
-    
     Serial.begin(9600);
-    delay(1000);
+    #ifdef DEBUG
     Serial.println("Starting up...");
-
-    // initialize bme280 sensor
-    if (!bme280.begin()) {
-        exception("Could not find a valid BME280 sensor, check wiring!", Serial);
-    }
+    #endif
     
-    Serial.println("BME280 initialized!");
-}
+    TwoWire I2CBus(I2C_SDA, I2C_SCL);
 
-void loop() {
-    digitalWrite(PA5, HIGH);
-    bme280.print(Serial);
-    digitalWrite(PA5, LOW);
-    delay(2000);
+    Sensor *sensors[] = {
+        new BME280(BME280_SLAVE_ADDRESS, &I2CBus),
+        new Photoresistor(PHOTORESISTOR_PIN)
+    };
+
+    // Initialize sensors
+    for (Sensor* sensor : sensors) {
+        if (!sensor->begin()) {
+            exception("Sensor initialization failed!", Serial);
+        }
+    }
+
+    BME280 bme280(BME280_SLAVE_ADDRESS, &I2CBus);
+    Photoresistor photoresistor(PHOTORESISTOR_PIN);
+
+    // LED pin
+    pinMode(LED_PIN, OUTPUT);
+
+    for (;;) {
+        // Read sensors
+        for (Sensor* sensor : sensors) {
+            sensor->print(Serial);
+        }
+        blinkInternal(1, 200);
+
+        delay(1000);
+        // serialEventRun();
+    }
 }

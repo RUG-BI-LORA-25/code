@@ -1,16 +1,15 @@
-#include <Arduino.h>
-#include "bme280.h"
 
-BME280::BME280(uint8_t address, TwoWire *theWire) : bme() {
-    i2cAddress = address;
-    wire = theWire;
+#include "sensors/bme280.h"
+
+BME280::BME280(uint8_t address, TwoWire *theWire)
+: i2cAddress(address), wire(theWire) {
+    bme = Adafruit_BME280();
 }
 
 bool BME280::begin() {
     if (!bme.begin(i2cAddress, wire)) {
         return false;
     }
-    
     // as per weather monitoring scenario
     bme.setSampling(Adafruit_BME280::MODE_FORCED, // Forced = takes measurement and sleeps
         Adafruit_BME280::SAMPLING_X4, // temperature

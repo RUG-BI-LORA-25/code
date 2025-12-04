@@ -1,13 +1,12 @@
-#ifndef MAIN_H
-#define MAIN_H
+#pragma once
 
 // Core Includes
 #include <Arduino.h>
 #include "shared.h"
 
 // sensors
-#include "bme280.h"
+#include "sensors/bme280.h"
+#include "sensors/photoresistor.h"
+#include "sensors/sensor.h"
 
 
-
-#endif // MAIN_H

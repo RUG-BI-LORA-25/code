@@ -1,11 +1,13 @@
-#ifndef BME280_H
-#define BME280_H
+#pragma once
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include "shared.h"
+#include "sensors/sensor.h"
 
-class HardwareSerial;
+
+#define BME280_SLAVE_ADDRESS 0x76
 
 typedef struct {
     float temperature;
@@ -13,7 +15,7 @@ typedef struct {
     float humidity;
 } WeatherData;
 
-class BME280 {
+class BME280 : public Sensor {
 public:
     BME280(uint8_t address = 0x76, TwoWire *theWire = &Wire);
     bool begin();
@@ -29,4 +31,3 @@ private:
     uint8_t i2cAddress;
     TwoWire *wire;
 };
-#endif // BME280_H
