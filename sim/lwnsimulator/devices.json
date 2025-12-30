@@ -1,1 +1,72 @@
-{}
+{
+	"0": {
+		"id": 0,
+		"info": {
+			"devEUI": "aaaaaaaaaaaaaaaa",
+			"devAddr": "00000000",
+			"nwkSKey": "00000000000000000000000000000000",
+			"appSKey": "00000000000000000000000000000000",
+			"appKey": "c0938ef11bb29e5d554bc138bdd34f21",
+			"name": "Test-01",
+			"status": {
+				"mtype": "ConfirmedDataUp",
+				"payload": "Piure de cartofi",
+				"active": true,
+				"infoUplink": {
+					"fport": 1,
+					"fcnt": 1
+				},
+				"fcntDown": 0,
+				"base64": false
+			},
+			"configuration": {
+				"region": 1,
+				"sendInterval": 10,
+				"ackTimeout": 2,
+				"range": 10000,
+				"disableFCntDown": true,
+				"supportedOtaa": true,
+				"supportedADR": true,
+				"supportedFragment": true,
+				"supportedClassB": false,
+				"supportedClassC": false,
+				"dataRate": 0,
+				"rx1DROffset": 0,
+				"nbRetransmission": 2
+			},
+			"location": {
+				"latitude": 0,
+				"longitude": 0,
+				"altitude": 0
+			},
+			"rxs": [
+				{
+					"delay": 1000,
+					"durationOpen": 3000,
+					"channel": {
+						"active": false,
+						"enableUplink": false,
+						"freqUplink": 0,
+						"freqDownlink": 0,
+						"minDR": 0,
+						"maxDR": 0
+					},
+					"dataRate": 0
+				},
+				{
+					"delay": 1000,
+					"durationOpen": 3000,
+					"channel": {
+						"active": true,
+						"enableUplink": false,
+						"freqUplink": 0,
+						"freqDownlink": 869525000,
+						"minDR": 0,
+						"maxDR": 0
+					},
+					"dataRate": 0
+				}
+			]
+		}
+	}
+}
