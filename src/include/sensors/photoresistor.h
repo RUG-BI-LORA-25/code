@@ -1,5 +1,11 @@
 #pragma once
 
+#ifdef SIMULATION_MODE
+#include "mocks/Arduino.h"
+#else
+#include <Arduino.h>
+#endif
+
 #include "shared.h"
 #include "sensors/sensor.h"
 

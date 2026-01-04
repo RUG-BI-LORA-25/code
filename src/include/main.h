@@ -1,7 +1,11 @@
 #pragma once
 
 // Core Includes
+#ifdef SIMULATION_MODE
+#include "mocks/Arduino.h"
+#else
 #include <Arduino.h>
+#endif
 #include "shared.h"
 
 // sensors

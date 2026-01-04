@@ -2,17 +2,21 @@
 #include "pins.h"
 
 int main(void) {
+    #ifndef SIMULATION_MODE
     init();
+    #endif
 
-    Serial.begin(9600);
-    #ifdef DEBUG
-    Serial.println("Starting up...");
+    #ifndef SIMULATION_MODE
+        Serial.begin(9600);
+        #ifdef DEBUG
+        Serial.println("Starting up...");
+        #endif
     #endif
     
     TwoWire I2CBus(I2C_SDA, I2C_SCL);
 
     Sensor *sensors[] = {
-        new BME280(BME280_SLAVE_ADDRESS, &I2CBus),
+        new BME280(BME280_I2C_ADDR, &I2CBus),
         new Photoresistor(PHOTORESISTOR_PIN)
     };
 
@@ -23,7 +27,7 @@ int main(void) {
         }
     }
 
-    BME280 bme280(BME280_SLAVE_ADDRESS, &I2CBus);
+    BME280 bme280(BME280_I2C_ADDR, &I2CBus);
     Photoresistor photoresistor(PHOTORESISTOR_PIN);
 
     // LED pin
