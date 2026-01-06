@@ -15,21 +15,18 @@
 
 
 typedef struct {
-    float temperature;
-    float pressure;
-    float humidity;
+    int8_t temperature;    // -128 to +127°C, 1°C resolution
+    uint16_t pressure;
+    uint16_t humidity;   
 } WeatherData;
 
 class BME280 : public Sensor {
 public:
     BME280(uint8_t address = BME280_I2C_ADDR, TwoWire *theWire = nullptr);
-    bool begin();
     WeatherData data();
-    float temperature();
-    float pressure();
-    float humidity();
-
-    void print(HardwareSerial& serial);
+    uint8_t serialize(uint8_t* buffer) override;
+    bool begin() override;
+    void print(HardwareSerial& serial) override;
 
 private:
     Adafruit_BME280 bme;

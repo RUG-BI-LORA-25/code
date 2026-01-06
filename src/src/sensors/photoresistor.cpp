@@ -33,3 +33,10 @@ void Photoresistor::print(HardwareSerial& serial) {
     serial.println(lightLevel);
     serial.println();
 }
+
+uint8_t Photoresistor::serialize(uint8_t* buffer) {
+    int lightLevel = data();
+    buffer[0] = (lightLevel >> 8) & 0xFF;
+    buffer[1] = lightLevel & 0xFF;
+    return 2; // length
+}

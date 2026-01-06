@@ -14,8 +14,8 @@ class Photoresistor: public Sensor {
 public:
     Photoresistor();
     Photoresistor(uint16_t analogPin);
-    bool begin();
     int data();
-    
-    void print(HardwareSerial& serial);
+    bool begin() override;
+    void print(HardwareSerial& serial) override;
+    uint8_t serialize(uint8_t* buffer) override;
 };
