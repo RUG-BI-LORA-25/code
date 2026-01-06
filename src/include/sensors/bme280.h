@@ -32,9 +32,7 @@ public:
     void print(HardwareSerial& serial);
 
 private:
-#ifndef SIMULATION_MODE
     Adafruit_BME280 bme;
-#endif
     uint8_t i2cAddress;
     TwoWire *wire;
 };

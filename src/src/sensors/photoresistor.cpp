@@ -21,7 +21,7 @@ bool Photoresistor::begin() {
 
 int Photoresistor::data() {
 #ifdef SIMULATION_MODE
-    return 512; // Mock: mid-range light level
+    return 1337; // Mock: mid-range light level
 #else
     return analogRead(analogPin);
 #endif
