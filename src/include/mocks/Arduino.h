@@ -16,6 +16,11 @@ typedef bool boolean;
 #define LOW 0
 #define HIGH 1
 
+// Print format constants
+#define DEC 10
+#define HEX 16
+#define OCT 8
+#define BIN 2
 
 inline void pinMode(uint8_t pin, uint8_t mode) {}
 inline void digitalWrite(uint8_t pin, uint8_t value) {}
@@ -34,19 +39,43 @@ public:
     
     void print(const char* str) { std::cout << str; }
     void print(char c) { std::cout << c; }
-    void print(int n) { std::cout << n; }
-    void print(unsigned int n) { std::cout << n; }
-    void print(long n) { std::cout << n; }
-    void print(unsigned long n) { std::cout << n; }
+    void print(int n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec;
+        else std::cout << n;
+    }
+    void print(unsigned int n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec;
+        else std::cout << n;
+    }
+    void print(long n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec;
+        else std::cout << n;
+    }
+    void print(unsigned long n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec;
+        else std::cout << n;
+    }
     void print(float n, int digits = 2) { std::cout << n; }
     void print(double n, int digits = 2) { std::cout << n; }
     
     void println(const char* str) { std::cout << str << std::endl; }
     void println(char c) { std::cout << c << std::endl; }
-    void println(int n) { std::cout << n << std::endl; }
-    void println(unsigned int n) { std::cout << n << std::endl; }
-    void println(long n) { std::cout << n << std::endl; }
-    void println(unsigned long n) { std::cout << n << std::endl; }
+    void println(int n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec << std::endl;
+        else std::cout << n << std::endl;
+    }
+    void println(unsigned int n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec << std::endl;
+        else std::cout << n << std::endl;
+    }
+    void println(long n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec << std::endl;
+        else std::cout << n << std::endl;
+    }
+    void println(unsigned long n, int base = DEC) { 
+        if (base == HEX) std::cout << std::hex << n << std::dec << std::endl;
+        else std::cout << n << std::endl;
+    }
     void println(float n, int digits = 2) { std::cout << n << std::endl; }
     void println(double n, int digits = 2) { std::cout << n << std::endl; }
     void println() { std::cout << std::endl; }
