@@ -12,4 +12,3 @@
 #include "sensors/bme280.h"
 #include "sensors/photoresistor.h"
 #include "sensors/sensor.h"
-
