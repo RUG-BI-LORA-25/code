@@ -13,6 +13,3 @@
 #include "sensors/photoresistor.h"
 #include "sensors/sensor.h"
 
-// lorawan
-#include "lora/loraWAN.h"
-
