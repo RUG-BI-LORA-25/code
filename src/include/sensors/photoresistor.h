@@ -6,7 +6,6 @@
 #include <Arduino.h>
 #endif
 
-#include "shared.h"
 #include "sensors/sensor.h"
 
 class Photoresistor: public Sensor {
