@@ -27,8 +27,8 @@ int main(void) {
         }
     }
 
-    BME280 bme280(BME280_I2C_ADDR, &I2CBus);
-    Photoresistor photoresistor(PHOTORESISTOR_PIN);
+    LORA lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1);
+    lora.begin();
 
     // LED pin
     pinMode(LED_PIN, OUTPUT);

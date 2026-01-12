@@ -1,5 +1,9 @@
 #include "shared.h"
 
+void log(const char* msg, HardwareSerial& serial) {
+    serial.println(msg);
+}
+
 void exception() {
     while (1); // Halt execution
 }
@@ -7,6 +11,11 @@ void exception() {
 void exception(const char* msg, HardwareSerial& serial) {
     serial.println(msg);
     while (1); // Halt execution
+}
+
+void exception(const String& msg, HardwareSerial& serial) {
+    serial.println(msg);
+    while (1);
 }
 
 void blinkInternal(int times, int delayMs) {
