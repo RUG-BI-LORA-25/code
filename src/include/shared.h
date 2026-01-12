@@ -17,7 +17,9 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 
 void exception();
+void log(const char* msg, HardwareSerial& serial);
 void exception(const char* msg, HardwareSerial& serial);
 void showString(const char* str);
+void exception(const String& msg, HardwareSerial& serial);
 
 void blinkInternal(int times, int delayMs);

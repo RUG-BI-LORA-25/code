@@ -7,6 +7,10 @@ display.clearDisplay();
 display.display();
 #endif
 
+void log(const char* msg, HardwareSerial& serial) {
+    serial.println(msg);
+}
+
 void exception() {
     while (1); // Halt execution
 }
@@ -36,6 +40,9 @@ void showString(const char* str) {
     display.display();
     delay(2000);
     display.clearDisplay();
+void exception(const String& msg, HardwareSerial& serial) {
+    serial.println(msg);
+    while (1);
 }
 
 void blinkInternal(int times, int delayMs) {

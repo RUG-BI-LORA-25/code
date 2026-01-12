@@ -12,3 +12,7 @@
 #include "sensors/bme280.h"
 #include "sensors/photoresistor.h"
 #include "sensors/sensor.h"
+
+// lora
+#include "lora/sx1278.h"
+
