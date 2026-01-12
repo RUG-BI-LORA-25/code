@@ -10,8 +10,7 @@ LORA::LORA(int nss, int reset, int dio0, int dio1)
 }
 
 void LORA::begin() {
-    log("[SX1278] Initializing ... ", Serial);
-
+    log("Initializing LoRa SX1278...", "LORA", Serial);
     if(radio == nullptr) {
         exception("LORA::begin(): radio is nullptr", Serial);
         return;

@@ -10,7 +10,6 @@
 // #define I2C_SDA PB9
 // #define I2C_SCL PB8
 
-Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 #endif
 
@@ -18,8 +17,9 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 void exception();
 void log(const char* msg, HardwareSerial& serial);
+void log(const char msg[], const char component[], HardwareSerial& serial);
 void exception(const char* msg, HardwareSerial& serial);
 void showString(const char* str);
 void exception(const String& msg, HardwareSerial& serial);
-
+void initDisplay();
 void blinkInternal(int times, int delayMs);

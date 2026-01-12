@@ -5,27 +5,43 @@ int main(void) {
     #ifndef SIMULATION_MODE
     init();
     #endif
-
+    
+    TwoWire I2CBus(I2C_SDA, I2C_SCL);
+    // test i2c bus
+    I2CBus.begin();
+    delay(100);
+    
     #ifndef SIMULATION_MODE
         Serial.begin(9600);
         #ifdef DEBUG
-        Serial.println("Starting up...");
+        log("Serial initialized.", "MAIN", Serial);
         #endif
 
-        // flash cartof
-        cartof();
+        initDisplay();
     #endif
     
-    TwoWire I2CBus(I2C_SDA, I2C_SCL);
 
     Sensor *sensors[] = {
         new BME280(BME280_I2C_ADDR, &I2CBus),
         new Photoresistor(PHOTORESISTOR_PIN)
     };
 
+    // list sensors
+    #ifdef DEBUG
+    log("Available sensors:", "MAIN", Serial);
+    for (Sensor* sensor : sensors) {
+        log(sensor->getID(), "MAIN", Serial);
+    }
+    #endif
+
     // Initialize sensors
     for (Sensor* sensor : sensors) {
         if (!sensor->begin()) {
+            #ifdef DEBUG
+            // print name of the sensor that failed
+            log("Issue with sensor:", "MAIN", Serial);
+            log(sensor->getID(), "MAIN", Serial);
+            #endif
             exception("Sensor initialization failed!", Serial);
         }
     }

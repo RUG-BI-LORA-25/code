@@ -6,14 +6,17 @@
 #define PIN_PHOTORESISTOR PC3
 #endif
 
-Photoresistor::Photoresistor() : analogPin(PIN_PHOTORESISTOR) {}
+Photoresistor::Photoresistor() : Sensor({"PR"}), analogPin(PIN_PHOTORESISTOR) {}
 
-Photoresistor::Photoresistor(uint16_t pin) : analogPin(pin) {}
+Photoresistor::Photoresistor(uint16_t pin) : Sensor({"PR"}), analogPin(pin) {}
 
 bool Photoresistor::begin() {
 #ifdef SIMULATION_MODE
     return true;
 #else
+    #ifdef DEBUG
+    log("Set up sensor.", "PR", Serial);
+    #endif
     pinMode(analogPin, INPUT);
     return true;
 #endif
