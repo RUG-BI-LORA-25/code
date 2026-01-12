@@ -1,13 +1,12 @@
 #pragma once
 
 #include "shared.h"
-#include <Arduino.h>
 #include <SPI.h>
 #include <RadioLib.h>
 
-class LORA{
+class LoRaModule{
    public:
-    LORA(int nss, int reset, int dio0, int dio1);
+    LoRaModule(int nss, int reset, int dio0, int dio1);
     void begin();
 
    private:

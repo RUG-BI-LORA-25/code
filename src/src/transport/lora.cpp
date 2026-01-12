@@ -1,6 +1,6 @@
 #include "transport/lora.h"
 
-LORA::LORA(int nss, int reset, int dio0, int dio1)
+LoRaModule::LoRaModule(int nss, int reset, int dio0, int dio1)
     : pin_nss(nss), pin_reset(reset), pin_dio0(dio0), pin_dio1(dio1), radio(nullptr)
 {
     SPIClass spi(LORA_MOSI, LORA_MISO, LORA_SCK);
@@ -9,7 +9,7 @@ LORA::LORA(int nss, int reset, int dio0, int dio1)
     radio = new Module(pin_nss, pin_dio0, pin_dio1, pin_reset, spi);
 }
 
-void LORA::begin() {
+void LoRaModule::begin() {
     log("Initializing LoRa SX1278...", "LORA", Serial);
     
 

@@ -47,7 +47,7 @@ int main(void) {
         }
     }
 
-    LORA lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1);
+    LoRaModule lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1);
     lora.begin();
 
     // LED pin
