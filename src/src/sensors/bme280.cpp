@@ -2,40 +2,30 @@
 #include "sensors/bme280.h"
 
 BME280::BME280(uint8_t address, TwoWire *theWire)
-: i2cAddress(address), wire(theWire) {
-    bme = Adafruit_BME280();
-}
+: i2cAddress(address), wire(theWire), bme(Adafruit_BME280())
+{}
 
 bool BME280::begin() {
     if (!bme.begin(i2cAddress, wire)) {
         return false;
     }
-    // as per weather monitoring scenario
-    bme.setSampling(Adafruit_BME280::MODE_FORCED, // Forced = takes measurement and sleeps
-        Adafruit_BME280::SAMPLING_X4, // temperature
-        Adafruit_BME280::SAMPLING_X4, // pressure
-        Adafruit_BME280::SAMPLING_X4, // humidity
+    bme.setSampling(Adafruit_BME280::MODE_FORCED,
+        Adafruit_BME280::SAMPLING_X4,
+        Adafruit_BME280::SAMPLING_X4,
+        Adafruit_BME280::SAMPLING_X4,
         Adafruit_BME280::FILTER_OFF);
-    
     return true;
 }
 
 WeatherData BME280::data() {
     WeatherData wd;
-    wd.temperature = bme.readTemperature();
-    wd.pressure = bme.readPressure() / 100.0F;
-    wd.humidity = bme.readHumidity();
+    wd.temperature = static_cast<int8_t>(bme.readTemperature());
+    float pressure_hPa = bme.readPressure() / 100.0f;
+    wd.pressure = static_cast<uint8_t>(pressure_hPa - 950.0f);
+    wd.humidity = static_cast<uint16_t>(bme.readHumidity() * 100);
     return wd;
 }
-float BME280::temperature() {
-    return bme.readTemperature();
-}
-float BME280::pressure() {
-    return bme.readPressure() / 100.0F;
-}
-float BME280::humidity() {
-    return bme.readHumidity();
-}
+
 
 void BME280::print(HardwareSerial& serial) {
     WeatherData wd = data();
@@ -44,7 +34,7 @@ void BME280::print(HardwareSerial& serial) {
     serial.println(" *C");
 
     serial.print("Pressure = ");
-    serial.print(wd.pressure);
+    serial.print(wd.pressure + 950); // add offset back
     serial.println(" hPa");
 
     serial.print("Humidity = ");
@@ -52,4 +42,18 @@ void BME280::print(HardwareSerial& serial) {
     serial.println(" %");
 
     serial.println();
+}
+
+// 5 bits temp(offset by 10), 1 byte pressure(add 950), 2 bytes humidity
+uint8_t BME280::serialize(uint8_t* buffer) {
+    WeatherData wd = data();
+    
+    // 4 bytes total
+    int8_t temp_offset = wd.temperature + 10;
+    buffer[0] = (temp_offset & 0x1F);  // 5 bits
+    buffer[1] = wd.pressure; // 1 byte (950-1205 hPa)
+    buffer[2] = wd.humidity & 0xFF;
+    buffer[3] = (wd.humidity >> 8) & 0xFF;
+    
+    return 4;
 }

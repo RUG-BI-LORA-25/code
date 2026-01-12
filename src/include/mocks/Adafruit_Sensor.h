@@ -1,0 +1,6 @@
+#ifndef ADAFRUIT_SENSOR_MOCK_H
+#define ADAFRUIT_SENSOR_MOCK_H
+
+// empty
+
+#endif // ADAFRUIT_SENSOR_MOCK_H
