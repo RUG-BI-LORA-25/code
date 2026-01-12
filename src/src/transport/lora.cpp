@@ -1,4 +1,4 @@
-#include "lora/sx1278.h"
+#include "transport/lora.h"
 
 LORA::LORA(int nss, int reset, int dio0, int dio1)
     : pin_nss(nss), pin_reset(reset), pin_dio0(dio0), pin_dio1(dio1), radio(nullptr)

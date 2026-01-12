@@ -14,7 +14,7 @@
 #include "sensors/sensor.h"
 
 // lora
-#include "lora/sx1278.h"
+#include "transport/lora.h"
 
 // display
 #include <Adafruit_SSD1306.h>
