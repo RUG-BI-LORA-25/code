@@ -11,6 +11,9 @@ int main(void) {
         #ifdef DEBUG
         Serial.println("Starting up...");
         #endif
+
+        // flash cartof
+        cartof();
     #endif
     
     TwoWire I2CBus(I2C_SDA, I2C_SCL);
