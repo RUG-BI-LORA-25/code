@@ -2,38 +2,51 @@
 #include "cartof.h"
 
 #ifndef SIMULATION_MODE
-Adafruit_SSD1306 display(128, 64, &Wire, -1);
+Adafruit_SSD1306* display;
+
 void cartof() {
-    display.clearDisplay();
-    display.drawBitmap(0, 0, cartof_bmp, 128, 160, SSD1306_WHITE);
-    display.display();
+    display->clearDisplay();
+    display->drawBitmap(0, 0, cartof_bmp, 128, 64, SSD1306_WHITE);
+    display->display();
+    
     #ifdef DEBUG
     log("Displaying cartof logo...", "DISPLAY", Serial);
     #endif
+
     delay(2000);
-    display.clearDisplay();
+    display->clearDisplay();
+    display->display();
 }
 
-void initDisplay() {
+void initDisplay(TwoWire* wire) {
     #ifdef DEBUG
-    log("Initializing OLED display...", "DISPLAY", Serial);
+    log("Initializing OLED display.", "DISPLAY", Serial);
     #endif
-    display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR); 
-    display.clearDisplay();
-    display.display();
+    display = new Adafruit_SSD1306(128, 64, wire);
+    if (!display->begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        // we don't really NEED a display, so just continue
+        #ifdef DEBUG
+        log("SSD1306 allocation failed", "DISPLAY", Serial);
+        #endif
+    }
+    delay(1000);
 
     cartof();
+    // flash();
+
+    #ifdef DEBUG
+    log("OLED display initialized", "DISPLAY", Serial);
+    #endif
 }
 
 void showString(const char* str) {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.println(str);
-    display.display();
-    delay(2000);
-    display.clearDisplay();
+    display->clearDisplay();
+    display->setTextSize(1);
+    display->setTextColor(SSD1306_WHITE);
+    display->setCursor(0, 0);
+    display->println(str);
+    display->display();
+    delay(100);
 }
 #endif
 
@@ -54,9 +67,9 @@ void exception() {
 
 void exception(const char* msg, HardwareSerial& serial) {
     serial.println(msg);
-    #ifndef SIMULATION_MODE
-    showString(msg);
-    #endif
+    // #ifndef SIMULATION_MODE
+    // showString(msg);
+    // #endif
     while (1); // Halt execution
 }
 
@@ -79,3 +92,19 @@ void blinkInternal(int times, int delayMs) {
         delay(delayMs);
     }
 }
+
+// scan i2c bus
+// void scanI2CBus(TwoWire* I2CBus) {
+//     log("Scanning I2C bus...", "MAIN", Serial);
+//     for (uint8_t address = 1; address < 127; address++ )
+//     {
+//         I2CBus->beginTransmission(address);
+//         if (I2CBus->endTransmission() == 0)
+//         {
+//             log("I2C device found at address: ", "MAIN", Serial);
+//             Serial.print("0x");
+//             if (address < 16) Serial.print("0");
+//             Serial.println(address, HEX);
+//         }
+//     }
+// }

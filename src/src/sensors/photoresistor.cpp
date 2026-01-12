@@ -30,6 +30,13 @@ int Photoresistor::data() {
 #endif
 }
 
+void Photoresistor::show() {
+    int lightLevel = data();
+    #ifndef SIMULATION_MODE
+    showString(("Photoresistor\nLight Level: " + String(lightLevel)).c_str());
+    #endif
+}
+
 void Photoresistor::print(HardwareSerial& serial) {
     int lightLevel = data();
     serial.print("Light Level = ");

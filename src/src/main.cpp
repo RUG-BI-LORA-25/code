@@ -7,18 +7,19 @@ int main(void) {
     #endif
     
     TwoWire I2CBus(I2C_SDA, I2C_SCL);
-    // test i2c bus
-    I2CBus.begin();
-    delay(100);
-    
+
     #ifndef SIMULATION_MODE
         Serial.begin(9600);
+        I2CBus.begin();
+        delay(100); 
         #ifdef DEBUG
         log("Serial initialized.", "MAIN", Serial);
+        log("I2C bus initialized.", "MAIN", Serial);
         #endif
 
-        initDisplay();
+        initDisplay(&I2CBus);
     #endif
+    
     
 
     Sensor *sensors[] = {
@@ -53,13 +54,13 @@ int main(void) {
     pinMode(LED_PIN, OUTPUT);
 
     for (;;) {
+        delay(1000);
         // Read sensors
         for (Sensor* sensor : sensors) {
-            sensor->print(Serial);
+            sensor->show();
+            delay(1000);
         }
-        blinkInternal(1, 200);
 
-        delay(1000);
         // serialEventRun();
     }
 }

@@ -27,11 +27,11 @@
 #define LORA_MOSI PB15
 #define LORA_MISO PB14
 #define LORA_SCK PB13
-#define LORA_NSS PB12
+#define LORA_NSS PA4
 #define LORA_RESET PB10
 #define LORA_DIO0 PB1
 #define LORA_DIO1 PB2
 #define LORA_DIO2 PB3
 
-#define BME280_I2C_ADDR 0x77
+#define BME280_I2C_ADDR 0x76
 #define OLED_I2C_ADDR   0x3C

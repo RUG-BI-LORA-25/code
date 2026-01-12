@@ -17,4 +17,5 @@ public:
     bool begin() override;
     void print(HardwareSerial& serial) override;
     uint8_t serialize(uint8_t* buffer) override;
+    void show() override;
 };

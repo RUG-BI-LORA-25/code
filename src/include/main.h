@@ -16,3 +16,5 @@
 // lora
 #include "lora/sx1278.h"
 
+// display
+#include <Adafruit_SSD1306.h>

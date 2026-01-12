@@ -21,6 +21,13 @@ bool BME280::begin() {
     return true;
 }
 
+void BME280::show() {
+    WeatherData wd = data();
+    #ifndef SIMULATION_MODE
+    showString(("BME280\nT: " + String(wd.temperature) + " C\nP: " + String(wd.pressure + 950) + " hPa\nH: " + String(wd.humidity / 100.0f) + " %").c_str());
+    #endif
+}
+
 WeatherData BME280::data() {
     WeatherData wd;
     wd.temperature = static_cast<int8_t>(bme.readTemperature());

@@ -27,6 +27,7 @@ public:
     uint8_t serialize(uint8_t* buffer) override;
     bool begin() override;
     void print(HardwareSerial& serial) override;
+    void show() override;
 
 private:
     Adafruit_BME280 bme;

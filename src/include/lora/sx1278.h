@@ -11,7 +11,7 @@ class LORA{
     void begin();
 
    private:
-    SX1278* radio;
+    SX1278 radio;
     int pin_nss;
     int pin_reset; 
     int pin_dio0;   
