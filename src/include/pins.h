@@ -3,12 +3,16 @@
 #ifdef SIMULATION_MODE
 
 // six-seven
+#define PA4  67
 #define PA5  67
 #define PA9  67
 #define PA10 67
+#define PA15 67
 #define PB1  67
 #define PB2  67
 #define PB3  67
+#define PB4  67
+#define PB5  67
 #define PB8  67
 #define PB9  67
 #define PB10 67
@@ -32,6 +36,11 @@
 #define LORA_DIO0 PB1
 #define LORA_DIO1 PB2
 #define LORA_DIO2 PB3
+
+#define ETHERNET_MOSI PB5
+#define ETHERNET_MISO PB4
+#define ETHERNET_SCK PB3
+#define ETHERNET_CS PA15
 
 #define BME280_I2C_ADDR 0x76
 #define OLED_I2C_ADDR   0x3C

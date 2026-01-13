@@ -1,6 +1,10 @@
 #include "main.h"
 #include "pins.h"
 
+#ifndef SIMULATION_MODE
+#include "transport/ethernet.h"
+#endif
+
 int main(void) {
     #ifndef SIMULATION_MODE
     init();
