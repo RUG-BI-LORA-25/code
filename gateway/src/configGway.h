@@ -1,7 +1,7 @@
 // 1-channel LoRa Gateway for ESP32 and ESP8266
 // Copyright (c) Maarten Westenberg 2016-2021 
 
-#define VERSION "V.6.2.8.EU868; PlatformIO 211015 a; distri GIT"
+#define VERSION "V.6.2.8.CARTOF; PlatformIO 211015 a; distri GIT"
 
 //
 // Based on work done by Thomas Telkamp for Raspberry PI 1ch gateway and many others.
@@ -87,7 +87,7 @@
 // AS923		(Not Used)
 // You can find the definitions in "loraModem.h" and frequencies in
 // See https://www.thethingsnetwork.org/docs/lorawan/frequency-plans.html
-#define EU863_870 1
+#define EU433 1
  
 
 // Define the CLASS mode of the gateway
@@ -167,7 +167,7 @@
 //	4: ESP32, Heltec and TTGO pin out (should work for Heltec, 433 and Oled too).
 //	5: Other, define your own in loraModem.h (does not include GPS Code)
 #if !defined _PIN_OUT
-#	define _PIN_OUT 1
+#	define _PIN_OUT 5
 #endif
 
 
@@ -365,7 +365,7 @@
 
 // Init EXPERT mode
 #if !defined _EXPERT
-#	define _EXPERT 0						// default, NO _EXPERT
+#	define _EXPERT 1						// default, NO _EXPERT
 #endif //EXPERT
 
 // MQTT definitions, these settings should be standard for TTN
@@ -376,6 +376,6 @@
 //#	define _TTNSERVER "router.eu.thethings.network"
 //
 // TTN Version 3:
-#	define _TTNSERVER "eu1.cloud.thethings.network"	
+#	define _TTNSERVER "192.168.178.212"	
 #	define _TTNPORT 1700							// Standard port for TTN
 #endif

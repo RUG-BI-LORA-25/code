@@ -313,8 +313,8 @@ int sendPacket(uint8_t *buf, uint8_t len)
 
 	uint32_t fff	= (uint32_t)(root["txpk"]["freq"].as<double>() * 1000000);
 	
-	if (abs(freqs[gwayConfig.ch].dwnFreq - fff) < 100000) {
-		LoraDown.freq = (uint32_t) (freqs[gwayConfig.ch].dwnFreq) & 0xFFFFFFFF ;
+	if (abs((int32_t)(freqs[gwayConfig.ch].dwnFreq - fff)) < 100000) {
+			LoraDown.freq = (uint32_t) (freqs[gwayConfig.ch].dwnFreq) & 0xFFFFFFFF ;
 		if ((debug>=2) && (pdebug & P_TX)) {
 			mPrint("v sendPacket:: _STRICT_1CH="+String(_STRICT_1CH)+", fff="+String(fff)+", abs");
 		}

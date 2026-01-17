@@ -98,6 +98,7 @@ struct wpas {
 // below. This is needed to get the gateway working
 //
 wpas wpa[] = {
+	{"and another 2.4g wifi", "I-demand-access-to-the-internet-now-1"}
 };
 
 
@@ -119,11 +120,11 @@ wpas wpa[] = {
 
 
 // Gateway Ident definitions. Where is the gateway located?
-#define _DESCRIPTION "ESP Gateway"			// Name of the gateway
-#define _EMAIL "mw12554@hotmail.com"		// Owner
+#define _DESCRIPTION "Cartof Gateway"			// Name of the gateway
+#define _EMAIL "boyan@confest.im"		// Owner
 #define _PLATFORM "ESP8266"
-#define _LAT 52.237367
-#define _LON 5.978654
+#define _LAT 53.240532
+#define _LON 6.536756
 #define _ALT 14								// Altitude
 
 
