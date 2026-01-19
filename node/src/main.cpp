@@ -1,6 +1,6 @@
 #include "main.h"
 #include "pins.h"
-
+#define LEN(x) (sizeof(x) / sizeof((x)[0]))
 int main(void) {
     #ifndef SIMULATION_MODE
     init();
@@ -9,7 +9,7 @@ int main(void) {
     TwoWire I2CBus(I2C_SDA, I2C_SCL);
 
     #ifndef SIMULATION_MODE
-        Serial.begin(9600);
+        Serial.begin(115200);
         I2CBus.begin();
         delay(100); 
         #ifdef DEBUG
@@ -47,19 +47,32 @@ int main(void) {
         }
     }
 
-    LORA lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1);
+    SPIClass spi(LORA_MOSI, LORA_MISO, LORA_SCK);
+    spi.begin();
+
+    delay(100);
+    LORA lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1, spi);
     lora.begin();
+    
 
     // LED pin
     pinMode(LED_PIN, OUTPUT);
 
     for (;;) {
-        delay(1000);
+        delay(5000);
         // Read sensors
+        uint8_t data[LEN(sensors)];
+        size_t idx = 0;
         for (Sensor* sensor : sensors) {
-            sensor->show();
-            delay(1000);
+            uint8_t buffer[10];
+            data[idx++] = sensor->serialize(buffer);
+
         }
+        // send 
+        lora.sendData(data, LEN(sensors));
+        #ifdef DEBUG
+        log("Data sent via LoRa.", "MAIN", Serial);
+        #endif
 
         // serialEventRun();
     }

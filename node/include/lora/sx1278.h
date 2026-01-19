@@ -7,10 +7,16 @@
 
 class LORA{
    public:
-    LORA(int nss, int reset, int dio0, int dio1);
+    LORA(int nss, int reset, int dio0, int dio1, SPIClass& spi);
     void begin();
-
+    int16_t setFrequency(float freq);
+    int16_t setBandwidth(float bw);
+    int16_t setSpreadingFactor(uint8_t sf);
+    int16_t setPower(int8_t power);
+    int16_t setGain(uint8_t gain);
+    int16_t sendData(const uint8_t* data, size_t len);
    private:
+    LoRaWANNode node;
     SX1278 radio;
     int pin_nss;
     int pin_reset; 
