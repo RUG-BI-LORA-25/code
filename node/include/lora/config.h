@@ -7,8 +7,7 @@ const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds
 #define RADIOLIB_LORAWAN_JOIN_EUI  0x156962cc56e08ec0
 
 #ifndef RADIOLIB_LORAWAN_DEV_EUI   // Replace with your Device EUI
-// #define RADIOLIB_LORAWAN_DEV_EUI   0x975c335979fc518c
-#define RADIOLIB_LORAWAN_DEV_EUI   0x774ddcd6190ec3fd
+#define RADIOLIB_LORAWAN_DEV_EUI   0x975c335979fc518c
 #endif
 #ifndef RADIOLIB_LORAWAN_APP_KEY   // Replace with your App Key 
 #define RADIOLIB_LORAWAN_APP_KEY  0xa0, 0x54, 0x7e, 0x61, 0xf1, 0x55, 0x86, 0xda, 0x03, 0x60, 0x0b, 0x44, 0x18, 0x0b, 0x69, 0xec

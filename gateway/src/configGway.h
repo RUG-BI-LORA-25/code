@@ -167,7 +167,7 @@
 //	4: ESP32, Heltec and TTGO pin out (should work for Heltec, 433 and Oled too).
 //	5: Other, define your own in loraModem.h (does not include GPS Code)
 #if !defined _PIN_OUT
-#	define _PIN_OUT 5
+#	define _PIN_OUT 4
 #endif
 
 
