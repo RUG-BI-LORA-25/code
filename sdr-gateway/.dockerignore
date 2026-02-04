@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.grc
+.env
+.git/
+.gitignore
+*.md
+gnuradio.conf
