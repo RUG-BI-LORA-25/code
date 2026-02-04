@@ -1,0 +1,4 @@
+- [ ] Implement an auto C++-to-JS data decoder generator based on sensor serialization methods?
+- [ ] Write documentation
+- [ ] Implement a 3-node network (as per spec)
+- [ ] Implement PID
