@@ -55,16 +55,22 @@ void BME280::print(HardwareSerial& serial) {
     serial.println();
 }
 
-// 5 bits temp(offset by 10), 1 byte pressure(add 950), 2 bytes humidity
 uint8_t BME280::serialize(uint8_t* buffer) {
     WeatherData wd = data();
     
-    // 4 bytes total
-    int8_t temp_offset = wd.temperature + 10;
-    buffer[0] = (temp_offset & 0x1F);  // 5 bits
-    buffer[1] = wd.pressure; // 1 byte (950-1205 hPa)
-    buffer[2] = wd.humidity & 0xFF;
-    buffer[3] = (wd.humidity >> 8) & 0xFF;
+    int16_t temp = (int16_t)(wd.temperature * 100);  // Store as 0.01°C
+    buffer[0] = temp & 0xFF;
+    buffer[1] = (temp >> 8) & 0xFF;
     
-    return 4;
+    // Pressure: uint16_t (range 300-1100 hPa)
+    uint16_t press = (uint16_t)(wd.pressure * 10);  // Store as 0.1 hPa
+    buffer[2] = press & 0xFF;
+    buffer[3] = (press >> 8) & 0xFF;
+    
+    // Humidity: uint16_t (0-100%)
+    uint16_t hum = wd.humidity;  // Already in 0.01%
+    buffer[4] = hum & 0xFF;
+    buffer[5] = (hum >> 8) & 0xFF;
+    
+    return 6;  // 3 x int16_t = 6 bytes
 }
