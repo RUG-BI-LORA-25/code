@@ -83,19 +83,9 @@
           ];
 
           shellHook = ''
-            echo "Node development:"
-            echo "  cd node && pio run"
-            echo ""
-            echo "HackRF gateway:"
-            echo "  hackrf_info           # Check HackRF is connected"
-            echo "  gnuradio-companion    # Open GNU Radio GUI"
-            echo "  python3 sdr-gateway/lora_rx.py  # Run LoRa receiver"
-            echo ""
-            
             export PYTHONPATH="${gr-lora-sdr-pkg}/lib/python3.13/site-packages:$PYTHONPATH"
             export GRC_BLOCKS_PATH="${gr-lora-sdr-pkg}/share/gnuradio/grc/blocks:$GRC_BLOCKS_PATH"
             
-            # Increase GNU Radio buffer size for SF12 (needs 16384+ samples)
             export GR_CONF_DEFAULT_BUFFER_SIZE=65536
           '';
         };
