@@ -5,10 +5,9 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     
-    # gr-lora_sdr source
     gr-lora-sdr = {
       url = "github:tapparelj/gr-lora_sdr";
-      flake = false;  # It's not a flake, just fetch the source
+      flake = false; 
     };
   };
 
@@ -20,7 +19,17 @@
           config.allowUnfree = true;
         };
 
-        # Build gr-lora_sdr as a package
+        gnuradioWrapped = pkgs.gnuradio.override {
+          extraPackages = with pkgs.gnuradioPackages; [
+            osmosdr
+          ];
+          extraPythonPackages = with pkgs.python3Packages; [
+            numpy
+            requests
+            pyzmq
+          ];
+        };
+
         gr-lora-sdr-pkg = pkgs.stdenv.mkDerivation {
           pname = "gr-lora_sdr";
           version = "0.0-git";
@@ -29,80 +38,68 @@
           nativeBuildInputs = with pkgs; [
             cmake
             pkg-config
-            swig4
+            swig
           ];
 
           buildInputs = with pkgs; [
-            gnuradio
+            gnuradioWrapped
+            gnuradioWrapped.python
+            gnuradioWrapped.python.pkgs.numpy
+            gnuradioWrapped.python.pkgs.pybind11
             boost
             volk
             spdlog
             libsndfile
-            python3
-            python3Packages.numpy
-            python3Packages.pybind11
+            gmp
+            mpfr
           ];
 
           cmakeFlags = [
             "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
-            "-DGnuradio_DIR=${pkgs.gnuradio}/lib/cmake/gnuradio"
+            "-DGnuradio_DIR=${gnuradioWrapped}/lib/cmake/gnuradio"
+            "-DGMP_INCLUDE_DIR=${pkgs.gmp.dev}/include"
+            "-DGMP_LIBRARY=${pkgs.gmp}/lib/libgmp.so"
+            "-DGMPXX_LIBRARY=${pkgs.gmp}/lib/libgmpxx.so"
           ];
 
-          # Set up Python path
           postInstall = ''
             mkdir -p $out/share/gnuradio/grc/blocks
           '';
         };
 
-        # Python environment with all needed packages
-        pythonEnv = pkgs.python3.withPackages (ps: with ps; [
-          numpy
-          pybind11
-          # For the ChirpStack bridge script
-          requests
-        ]);
-
       in {
-        # Development shell - enter with `nix develop`
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
+          buildInputs = [
             # Node/embedded development
-            platformio
-            gcc-arm-embedded
-            stlink
+            pkgs.platformio
+            pkgs.gcc-arm-embedded
+            pkgs.stlink
             
-            # HackRF + GNU Radio
-            hackrf
-            gnuradio
+            # HackRF + GNU Radio (with Python bindings included)
+            pkgs.hackrf
+            gnuradioWrapped
+            gnuradioWrapped.pythonEnv
             gr-lora-sdr-pkg
-            
-            # Python for gateway scripts
-            pythonEnv
-            
-            # Useful tools
-            minicom
-            screen
           ];
 
           shellHook = ''
-            echo "🚀 LoRaWAN Dev Environment"
-            echo ""
             echo "Node development:"
             echo "  cd node && pio run"
             echo ""
             echo "HackRF gateway:"
             echo "  hackrf_info           # Check HackRF is connected"
             echo "  gnuradio-companion    # Open GNU Radio GUI"
-            echo "  python sdr-gateway/gateway.py  # Run gateway"
+            echo "  python3 sdr-gateway/lora_rx.py  # Run LoRa receiver"
             echo ""
             
-            # Add gr-lora_sdr to paths
-            export PYTHONPATH="${gr-lora-sdr-pkg}/lib/python${pkgs.python3.pythonVersion}/site-packages:$PYTHONPATH"
+            export PYTHONPATH="${gr-lora-sdr-pkg}/lib/python3.13/site-packages:$PYTHONPATH"
             export GRC_BLOCKS_PATH="${gr-lora-sdr-pkg}/share/gnuradio/grc/blocks:$GRC_BLOCKS_PATH"
+            
+            # Increase GNU Radio buffer size for SF12 (needs 16384+ samples)
+            export GR_CONF_DEFAULT_BUFFER_SIZE=65536
           '';
         };
 
-        # Also provide the old shell.nix behavior for backwards compat
         devShells.node = pkgs.mkShell {
           buildInputs = with pkgs; [
             platformio
@@ -111,7 +108,6 @@
           ];
         };
 
-        # Packages that can be built
         packages = {
           gr-lora-sdr = gr-lora-sdr-pkg;
           default = gr-lora-sdr-pkg;
