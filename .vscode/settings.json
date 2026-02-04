@@ -1,0 +1,11 @@
+{
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "ccls.cache.directory": "${workspaceFolder}/node/.ccls-cache",
+    "ccls.launch.command": "/home/boyan/.nix-profile/bin/ccls",
+    "ccls.misc.compilationDatabaseDirectory": "${workspaceFolder}/node",
+    "ccls.index.threads": 4,
+    "ccls.index.onChange": true,
+    "files.associations": {
+        "*.ino": "cpp"
+    }
+}

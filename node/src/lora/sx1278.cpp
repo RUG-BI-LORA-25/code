@@ -2,6 +2,7 @@
 #include "lora/config.h"
 
 #define JOIN 0 // 1 for OTAA, 0 for ABP
+
 LORA::LORA(int nss, int reset, int dio0, int dio1, SPIClass& spi)
     : pin_nss(nss), pin_reset(reset), pin_dio0(dio0), pin_dio1(dio1),
       radio(new Module(nss, dio0, reset, dio1, spi)), 
@@ -40,34 +41,45 @@ int join(LoRaWANNode& node) {
         return RADIOLIB_ERR_NONE;
     }
     log("LoRaWAN activation failed", "LORA", Serial);
+    return state;
 }
 #endif
+
 void LORA::begin() {
     log("Initializing LoRa SX1278...", "LORA", Serial);
     
-
-    // lora.setFrequency(433.175);
-    // lora.setBandwidth(125);
-    // lora.setSpreadingFactor(9);
-    // lora.setPower(14);
-    // lora.setGain(0);
-    // int state = radio.begin(); 
-    int state = radio.begin(433.175, 125.0, 9);
+    // Initialize radio at 433.175 MHz, 125kHz BW, SF12
+    int state = radio.begin(433.175, 125.0, 12, 5, RADIOLIB_SX127X_SYNC_WORD, 17, 8, 0);
+    
     if(state != RADIOLIB_ERR_NONE) {
         debug(state != RADIOLIB_ERR_NONE, F("Failed to initialize SX1278"), state, true);
         return;
     }
+    
     log("LoRa SX1278 initialized successfully.", "LORA", Serial);
     
+    // LoRaWAN takes over from here
     state = join(node);
+    
     if (state != RADIOLIB_ERR_NONE) {
         debug(state != RADIOLIB_ERR_NONE, F("Failed to join LoRaWAN network"), state, true);
         return;
     }
-    log("LoRaWAN activation successful.", "LORA", Serial);
-    log(((JOIN==1) ? "OTAA" : "ABP"), "LORA", Serial);
-}
 
+    // Disable ADR - we control datarate manually
+    node.setADR(false);
+    
+    // Set datarate - DR0=SF12, DR3=SF9, etc.
+    state = node.setDatarate(0);  // DR0 = SF12
+    if (state != RADIOLIB_ERR_NONE) {
+        Serial.print("[LORA] Failed to set datarate: ");
+        Serial.println(state);
+    } else {
+        Serial.println("[LORA] Datarate set to DR0 (SF12/125kHz)");
+    }
+    
+    log("LoRaWAN activation successful.", "LORA", Serial);
+}
 
 int16_t LORA::setFrequency(float freq) {
     return radio.setFrequency(freq);
@@ -76,18 +88,33 @@ int16_t LORA::setFrequency(float freq) {
 int16_t LORA::setBandwidth(float bw) {
     return radio.setBandwidth(bw);
 }
+
 int16_t LORA::setSpreadingFactor(uint8_t sf) {
     return radio.setSpreadingFactor(sf);
 }
+
 int16_t LORA::setPower(int8_t power) {
     return radio.setOutputPower(power);
 }
+
 int16_t LORA::setGain(uint8_t gain) {
     return radio.setGain(gain);
 }
 
 int16_t LORA::sendData(const uint8_t* data, size_t len) {
+    Serial.print("[LORA] Sending ");
+    Serial.print(len);
+    Serial.println(" bytes...");
+    
     int16_t state = node.sendReceive(data, len);
-    debug(state < RADIOLIB_ERR_NONE, F("Error in sendReceive"), state, false);
+    
+    if (state < RADIOLIB_ERR_NONE) {
+        Serial.print("[LORA] sendReceive error: ");
+        Serial.println(state);
+        debug(true, F("Error in sendReceive"), state, false);
+    } else {
+        Serial.println("[LORA] Packet sent successfully");
+    }
+    
     return state;
 }

@@ -16,7 +16,10 @@ const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds
 #define RADIOLIB_LORAWAN_NWK_KEY   0xb6, 0x75, 0x5b, 0xab, 0xbf, 0x34, 0x9c, 0xa2, 0x37, 0x7e, 0x4e, 0x6f, 0xe2, 0x25, 0x29, 0x69 
 #endif
 
-const LoRaWANBand_t Region = EU433;
+// Use patched EU433 band from lib/RadioLibPatch
+// - Single channel at 433.175 MHz
+// - Correct dataRates (DR0=SF12, DR1=SF11, etc.)
+const LoRaWANBand_t& Region = EU433;
 
 const uint8_t subBand = 0;
 

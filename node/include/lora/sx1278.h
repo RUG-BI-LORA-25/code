@@ -15,6 +15,7 @@ class LORA{
     int16_t setPower(int8_t power);
     int16_t setGain(uint8_t gain);
     int16_t sendData(const uint8_t* data, size_t len);
+    
    private:
     LoRaWANNode node;
     SX1278 radio;

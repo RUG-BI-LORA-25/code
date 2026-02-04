@@ -61,17 +61,25 @@ int main(void) {
     for (;;) {
         delay(5000);
         // Read sensors
-        uint8_t data[LEN(sensors)];
-        size_t idx = 0;
-        for (Sensor* sensor : sensors) {
-            uint8_t buffer[10];
-            data[idx++] = sensor->serialize(buffer);
+        // uint8_t data[LEN(sensors)];
+        // size_t idx = 0;
+        // for (Sensor* sensor : sensors) {
+        //     uint8_t buffer[10];
+        //     data[idx++] = sensor->serialize(buffer);
 
-        }
+        // }
         // send 
-        lora.sendData(data, LEN(sensors));
+        // lora.sendData(data, LEN(sensors));
+        
+        const unsigned char *msg = (const unsigned char *)"HELLO LORA";
+        int16_t state = lora.sendData(msg, strlen((const char*)msg));
         #ifdef DEBUG
-        log("Data sent via LoRa.", "MAIN", Serial);
+        if (state >= 0) {
+            log("Data sent via LoRaWAN successfully.", "MAIN", Serial);
+        } else {
+            Serial.print("[MAIN] Failed to send data, error: ");
+            Serial.println(state);
+        }
         #endif
 
         // serialEventRun();
