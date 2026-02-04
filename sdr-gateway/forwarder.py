@@ -20,13 +20,44 @@ class PacketForwarder:
     def __init__(self, host, port, gateway_eui):
         self.host = host
         self.port = port
+        self.uid = 0
         self.gateway_eui = gateway_eui
+        self.token = 0
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.id = 0
-        
+        self.sock.setblocking(False)
+        self.transmitter = None
+        self.downlink_queue = []
+    
+    def set_transmitter(self, tx):
+        self.transmitter = tx
+    
+    def check_downlink(self):
+        try:
+            data, _ = self.sock.recvfrom(1024)
+            if len(data) >= 4 and data[3] == 0x03:  # PULL_RESP
+                self._handle_downlink(data[4:])
+        except BlockingIOError:
+            pass
+    
+    def _handle_downlink(self, payload):
+        import json
+        try:
+            msg = json.loads(payload.decode())
+            if 'txpk' in msg:
+                txpk = msg['txpk']
+                data = base64.b64decode(txpk['data'])
+                if self.transmitter:
+                    self.transmitter.send(data)
+        except Exception as e:
+            print(f"Downlink error: {e}")
+    
+    def send_pull_data(self):
+        packet = struct.pack('>B H B', 0x02, self._next_id(), 0x02) + self.gateway_eui
+        self.sock.sendto(packet, (self.host, self.port))
+
     def _next_id(self):
-        self.id = (self.id + 1) & 0xFFFF
-        return self.id
+        self.uid = (self.uid + 1) & 0xFFFF
+        return self.uid
     
     def send_push_data(self, packets):
         uid = self._next_id()

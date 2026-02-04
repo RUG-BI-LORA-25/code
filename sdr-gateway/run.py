@@ -5,9 +5,43 @@ import threading
 from datetime import datetime
 from config import (CENTER_FREQ, SPREADING_FACTOR, BANDWIDTH,
                     CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
-from receiver import LoRaReceiver
+from receiver import Receiver
 from forwarder import PacketForwarder
+from transmitter import Transmitter
+# we assume u have hackrf_transfer
+# sike, we check for it
+if not __import__('shutil').which('hackrf_transfer'):
+    print("Please install hackrf tools (hackrf_transfer)")
+    exit(1)
 
+def cartof():
+    print("""
+▗▞▀▘▗▞▀▜▌ ▄▄▄ ■   ▄▄▄  ▗▞▀▀▘
+▝▚▄▖▝▚▄▟▌█ ▗▄▟▙▄▖█   █ ▐▌   
+         █   ▐▌  ▀▄▄▄▀ ▐▛▀▘ 
+             ▐▌        ▐▌   
+             ▐▌             
+                            
+                            
+    """)
+
+    # transmit
+    import subprocess
+    # cjheck for cartof.hackrf file
+    import os
+    cartof_file = os.path.join(os.path.dirname(__file__), 'cartof.iqhackrf')
+    if os.path.isfile(cartof_file):
+        print("Starting cartof transmission...")
+        subprocess.run([
+            'hackrf_transfer',
+            '-t', cartof_file,
+            '-f', str(int(CENTER_FREQ)),
+            '-s', '2000000',
+            '-x', '20',
+            '-a', '1'
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print("cartof.iqhackrf file not found, skipping transmission.")
 
 def print_packet_info(data, crc_ok, count):
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -29,6 +63,8 @@ def main():
     print("=" * 60)
     
     forwarder = PacketForwarder(CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
+    transmitter = Transmitter()
+    forwarder.set_transmitter(transmitter)
     packet_count = [0]
     
     def on_packet(data, crc_ok):
@@ -36,7 +72,7 @@ def main():
         print_packet_info(data, crc_ok, packet_count[0])
         forwarder.send_push_data([{'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0}])
     
-    receiver = LoRaReceiver(on_packet)
+    receiver = Receiver(on_packet)
     
     print("\nStarting gateway... Press Ctrl+C to stop\n")
     
@@ -49,7 +85,8 @@ def main():
             time.sleep(10)
             forwarder.send_stat()
             forwarder.send_keepalive()
-    
+            forwarder.send_pull_data()
+            forwarder.check_downlink()
     threading.Thread(target=keepalive_loop, daemon=True).start()
     
     try:
@@ -62,16 +99,6 @@ def main():
     receiver.wait()
     print(f"Total packets received: {packet_count[0]}")
 
-def cartof():
-    print("""
-▗▞▀▘▗▞▀▜▌ ▄▄▄ ■   ▄▄▄  ▗▞▀▀▘
-▝▚▄▖▝▚▄▟▌█ ▗▄▟▙▄▖█   █ ▐▌   
-         █   ▐▌  ▀▄▄▄▀ ▐▛▀▘ 
-             ▐▌        ▐▌   
-             ▐▌             
-                            
-                            
-    """)
 
 if __name__ == "__main__":
     main()

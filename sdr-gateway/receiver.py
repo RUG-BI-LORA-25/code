@@ -35,7 +35,7 @@ class LoRaPacketSink(gr.sync_block):
         return len(input_items[0])
 
 
-class LoRaReceiver(gr.top_block):
+class Receiver(gr.top_block):
     def __init__(self, packet_callback):
         gr.top_block.__init__(self, "HackRF LoRa Receiver")
         self.packet_callback = packet_callback
