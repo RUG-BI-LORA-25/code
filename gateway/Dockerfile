@@ -23,11 +23,10 @@ WORKDIR /tmp
 RUN git clone --depth 1 https://github.com/tapparelj/gr-lora_sdr.git && \
     cd gr-lora_sdr && \
     mkdir build && cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr .. && \
+    cmake .. && \
     make -j$(nproc) && \
-    make install
+    make DESTDIR=/install install
 
-# Runtime stage
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -43,19 +42,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-COPY --from=builder /usr/lib/python3/dist-packages/gnuradio/lora_sdr /usr/lib/python3/dist-packages/gnuradio/lora_sdr
-COPY --from=builder /usr/lib/*/libgnuradio-lora_sdr* /usr/lib/
+# Copy everything from the install directory
+COPY --from=builder /install/usr/local /usr/local
 
+# Create symlinks and update library cache
 RUN ldconfig
+
+ENV PYTHONPATH="/usr/local/lib/python3.11/dist-packages:${PYTHONPATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
 
 WORKDIR /app
 
-COPY config.py .
-COPY forwarder.py .
-COPY receiver.py .
-COPY transmitter.py .
-COPY run.py .
-COPY cartof.iqhackrf .
+COPY . .
 
 RUN chmod +x run.py
 
