@@ -16,7 +16,7 @@ BB_GAIN = int(os.environ.get('BB_GAIN', 20))
 
 CHIRPSTACK_HOST = os.environ.get('CHIRPSTACK_HOST', '192.168.178.212')
 CHIRPSTACK_PORT = int(os.environ.get('CHIRPSTACK_PORT', 1700))
-GATEWAY_EUI = os.environ.get('GATEWAY_EUI', '64b708ffff8a0a74')
+GATEWAY_EUI = bytes.fromhex(os.environ.get('GATEWAY_EUI', '64b708ffff8a0a74'))
 
 GATEWAY_LAT = float(os.environ.get('GATEWAY_LAT', 53.240532))
 GATEWAY_LON = float(os.environ.get('GATEWAY_LON', 6.536756))
