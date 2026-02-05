@@ -30,7 +30,7 @@ if ":" not in CHIRPSTACK_HOST:
 CHIRPSTACK_API_KEY = os.environ["CHIRPSTACK_API_KEY"]
 DEV_EUIS = os.environ["DEV_EUIS"].split(",")
 
-
+# https://github.com/chirpstack/chirpstack/blob/master/api/proto/api/internal.proto#L43
 def get_latest_uplink(client, dev_eui, auth):
     req = internal_pb2.StreamDeviceFramesRequest(dev_eui=dev_eui)
     for frame in client.StreamDeviceFrames(req, metadata=auth):
@@ -45,16 +45,10 @@ def main():
     auth = [("authorization", f"Bearer {CHIRPSTACK_API_KEY}")]
     channel = grpc.insecure_channel(CHIRPSTACK_HOST)
     
-    device_client = api.DeviceServiceStub(channel)
-    internal_client = internal_pb2_grpc.InternalServiceStub(channel)
+    internal = internal_pb2_grpc.InternalServiceStub(channel)
 
     for dev_eui in DEV_EUIS:
-        device = device_client.Get(
-            api.GetDeviceRequest(dev_eui=dev_eui), metadata=auth
-        ).device
-        logging.debug(f"\nDevice: {device.name} ({dev_eui})")
-
-        sf, bw, rssi = get_latest_uplink(internal_client, dev_eui, auth)
+        sf, bw, rssi = get_latest_uplink(internal, dev_eui, auth)
         
         if sf is not None:
             logging.debug(f" SF: {sf}, BW: {bw}, RSSI: {rssi}")
