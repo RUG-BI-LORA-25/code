@@ -1,3 +1,0 @@
-[submodule "sim/chirpstack-docker"]
-	path = sim/chirpstack-docker
-	url = https://github.com/chirpstack/chirpstack-docker.git
