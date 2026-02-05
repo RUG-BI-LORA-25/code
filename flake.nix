@@ -80,11 +80,14 @@
             gnuradioWrapped
             gnuradioWrapped.pythonEnv
             gr-lora-sdr-pkg
+            
+            pkgs.stdenv.cc.cc.lib
           ];
 
           shellHook = ''
             export PYTHONPATH="${gr-lora-sdr-pkg}/lib/python3.13/site-packages:$PYTHONPATH"
             export GRC_BLOCKS_PATH="${gr-lora-sdr-pkg}/share/gnuradio/grc/blocks:$GRC_BLOCKS_PATH"
+            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
             
             export GR_CONF_DEFAULT_BUFFER_SIZE=65536
           '';
