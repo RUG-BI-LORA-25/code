@@ -11,11 +11,12 @@
 #include "ns3/lora-helper.h"
 #include "ns3/lora-net-device.h"
 #include "ns3/lora-tag.h"
+#include "ns3/lorawan-mac-header.h"
 #include "ns3/mobility-helper.h"
 #include "ns3/network-module.h"
 #include "ns3/network-server-helper.h"
 #include "ns3/node-container.h"
-#include "ns3/one-shot-sender-helper.h"
+#include "ns3/periodic-sender-helper.h"
 #include "ns3/point-to-point-module.h"
 #include "ns3/position-allocator.h"
 #include "ns3/simulator.h"
@@ -28,47 +29,16 @@ using namespace lorawan;
 #define REFERENCE_DISTANCE 1.0
 #define REFERENCE_LOSS 8.0
 
-#define NOISE_FLOOR - 100.0
+#define NOISE_FLOOR -100.0
 #define SNR(rxPower) ((rxPower) - (NOISE_FLOOR))
 
 NS_LOG_COMPONENT_DEFINE("LorawanSimpleExample");
 
-NodeContainer g_gateways;
-NodeContainer g_endDevices;
-
 void
-SendDownlinkWithSNR(double snr, uint32_t frequency, uint8_t dataRate)
-{
-    // Get the gateway MAC
-    Ptr<Node> gateway = g_gateways.Get(0);
-    Ptr<NetDevice> gwNetDevice = gateway->GetDevice(0);
-    Ptr<LoraNetDevice> gwLoraNetDevice = DynamicCast<LoraNetDevice>(gwNetDevice);
-    Ptr<GatewayLorawanMac> gwMac = DynamicCast<GatewayLorawanMac>(gwLoraNetDevice->GetMac());
-
-    // Create a packet with SNR value as payload
-    std::ostringstream oss;
-    oss << "SNR=" << snr << " dB";
-    std::string payload = oss.str();
-    Ptr<Packet> replyPacket = Create<Packet>((uint8_t*)payload.c_str(), payload.length());
-
-    // Add LoraTag with downlink parameters
-    LoraTag tag;
-    tag.SetFrequency(frequency);
-    tag.SetDataRate(dataRate);
-    replyPacket->AddPacketTag(tag);
-
-    NS_LOG_UNCOND("Gateway sending downlink: " << payload);
-
-    // Send the packet through the gateway MAC
-    gwMac->Send(replyPacket);
-}
-
-void
-OnPacketReceptionCallback(Ptr<const Packet> packet)
+OnGatewayMacReceive(Ptr<const Packet> packet)
 {
     Ptr<Packet> packetCopy = packet->Copy();
 
-    // Get the LoraTag to extract reception information
     LoraTag tag;
     packetCopy->RemovePacketTag(tag);
 
@@ -76,83 +46,78 @@ OnPacketReceptionCallback(Ptr<const Packet> packet)
     double snr = SNR(rxPower);
     uint8_t sf = tag.GetSpreadingFactor();
     uint32_t freq = tag.GetFrequency();
+    // EU868: SF12=DR0 ... SF7=DR5
+    uint8_t dataRate = (sf >= 7 && sf <= 12) ? (12 - sf) : 0;
 
-    // The gateway PHY does not set the data rate in the tag, so we derive it from the SF.
-    // EU868 mapping: SF12=DR0, SF11=DR1, SF10=DR2, SF9=DR3, SF8=DR4, SF7=DR5
-    uint8_t dataRate = (sf <= 12 && sf >= 7) ? (12 - sf) : 0;
-
-    NS_LOG_UNCOND("\nGateway received uplink:");
-    NS_LOG_UNCOND("  RX Power: " << rxPower << " dBm");
-    NS_LOG_UNCOND("  SNR: " << snr << " dB");
-    NS_LOG_UNCOND("  Spreading Factor: " << (int)sf);
+    NS_LOG_UNCOND("\n[GW] Uplink received at " << Simulator::Now().As(Time::S));
+    NS_LOG_UNCOND("  RX Power : " << rxPower << " dBm");
+    NS_LOG_UNCOND("  SNR      : " << snr << " dB");
+    NS_LOG_UNCOND("  SF       : " << (int)sf << "  (DR" << (int)dataRate << ")");
     NS_LOG_UNCOND("  Frequency: " << freq << " Hz");
-    NS_LOG_UNCOND("  Data Rate: " << (int)dataRate);
-
-    Simulator::Schedule(Seconds(1.0), &SendDownlinkWithSNR, snr, freq, dataRate);
 }
 
-// Callback when end device MAC receives a downlink (fully parsed, addressed to this device)
 void
-OnEndDeviceMacReceptionCallback(Ptr<const Packet> packet)
+OnEndDeviceMacReceive(Ptr<const Packet> packet)
 {
-    Ptr<Packet> packetCopy = packet->Copy();
-    uint8_t buffer[256];
-    uint32_t size = packetCopy->CopyData(buffer, packetCopy->GetSize());
-    std::string payload(reinterpret_cast<char*>(buffer), size);
-
-    NS_LOG_UNCOND("\n=== End Device MAC received downlink ===");
+    NS_LOG_UNCOND("\n[ED] MAC received downlink at " << Simulator::Now().As(Time::S));
     NS_LOG_UNCOND("  Packet size: " << packet->GetSize() << " bytes");
-    NS_LOG_UNCOND("  Payload: " << payload);
-}
 
-// Callback when end device PHY successfully receives a packet
-void
-OnEndDevicePhyReceptionCallback(Ptr<const Packet> packet, uint32_t nodeId)
-{
-    Ptr<Packet> packetCopy = packet->Copy();
+    Ptr<Packet> copy = packet->Copy();
     LoraTag tag;
-    packetCopy->RemovePacketTag(tag);
+    if (copy->RemovePacketTag(tag))
+    {
+        NS_LOG_UNCOND("  RX Power : " << tag.GetReceivePower() << " dBm");
+        NS_LOG_UNCOND("  Frequency: " << tag.GetFrequency() << " Hz");
+        NS_LOG_UNCOND("  SF       : " << (int)tag.GetSpreadingFactor());
+    }
+}
 
-    NS_LOG_UNCOND("\n=== End Device (Node " << nodeId << ") PHY received downlink ===");
-    NS_LOG_UNCOND("  RX Power: " << tag.GetReceivePower() << " dBm");
+void
+OnEndDevicePhyReceive(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    Ptr<Packet> copy = packet->Copy();
+    LoraTag tag;
+    copy->RemovePacketTag(tag);
+
+    NS_LOG_UNCOND("\n[ED] PHY received packet on Node " << nodeId << " at "
+                                                        << Simulator::Now().As(Time::S));
+    NS_LOG_UNCOND("  RX Power : " << tag.GetReceivePower() << " dBm");
     NS_LOG_UNCOND("  Frequency: " << tag.GetFrequency() << " Hz");
-    NS_LOG_UNCOND("  Spreading Factor: " << (int)tag.GetSpreadingFactor());
-    NS_LOG_UNCOND("  Packet size: " << packet->GetSize() << " bytes");
+    NS_LOG_UNCOND("  SF       : " << (int)tag.GetSpreadingFactor());
+    NS_LOG_UNCOND("  Size     : " << packet->GetSize() << " bytes");
 }
 
-// Callback for packets lost due to wrong frequency
 void
-OnEndDeviceWrongFrequency(Ptr<const Packet> packet, uint32_t nodeId)
+OnLostWrongFrequency(Ptr<const Packet>, uint32_t nodeId)
 {
-    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
-                  << ") dropped downlink: wrong frequency");
+    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": wrong frequency");
 }
 
-// Callback for packets lost due to wrong SF
 void
-OnEndDeviceWrongSf(Ptr<const Packet> packet, uint32_t nodeId)
+OnLostWrongSf(Ptr<const Packet>, uint32_t nodeId)
 {
-    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
-                  << ") dropped downlink: wrong spreading factor");
+    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": wrong spreading factor");
 }
 
-// Callback for packets lost due to being under sensitivity
 void
-OnEndDeviceUnderSensitivity(Ptr<const Packet> packet, uint32_t nodeId)
+OnLostUnderSensitivity(Ptr<const Packet>, uint32_t nodeId)
 {
-    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
-                  << ") dropped downlink: under sensitivity");
+    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": under sensitivity");
 }
 
-// Callback for packets lost due to interference
 void
-OnEndDeviceInterference(Ptr<const Packet> packet, uint32_t nodeId)
+OnLostInterference(Ptr<const Packet>, uint32_t nodeId)
 {
-    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
-                  << ") dropped downlink: interference");
+    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": interference");
 }
 
-// Helper function to print device position
+void
+OnNetworkServerReceive(Ptr<const Packet> packet)
+{
+    NS_LOG_UNCOND("\n[NS] Network server received packet at "
+                  << Simulator::Now().As(Time::S) << ", size: " << packet->GetSize() << " bytes");
+}
+
 void
 PrintDevicePositions(NodeContainer devices, std::string deviceType)
 {
@@ -160,183 +125,151 @@ PrintDevicePositions(NodeContainer devices, std::string deviceType)
     for (uint32_t i = 0; i < devices.GetN(); i++)
     {
         Ptr<Node> node = devices.Get(i);
-        Ptr<MobilityModel> mobility = node->GetObject<MobilityModel>();
-        Vector pos = mobility->GetPosition();
+        Ptr<MobilityModel> mob = node->GetObject<MobilityModel>();
+        Vector pos = mob->GetPosition();
         double distance = sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
-        NS_LOG_UNCOND("  " << deviceType << " " << i << " (Node " << node->GetId()
-                           << "): Position (" << pos.x << ", " << pos.y << ", " << pos.z
-                           << "), Distance from origin: " << distance << " m");
+        NS_LOG_UNCOND("  " << deviceType << " " << i << " (Node " << node->GetId() << "): ("
+                           << pos.x << ", " << pos.y << ", " << pos.z
+                           << "), dist from origin: " << distance << " m");
     }
 }
 
 int
 main(int argc, char* argv[])
 {
-//     LogComponentEnable("LorawanSimpleExample", LOG_LEVEL_ALL);
-//     // LogComponentEnable("LoraChannel", LOG_LEVEL_INFO);
-//     LogComponentEnable("LoraPhy", LOG_LEVEL_ALL);
-//     LogComponentEnable("EndDeviceLoraPhy", LOG_LEVEL_ALL);
-//     // LogComponentEnable("GatewayLoraPhy", LOG_LEVEL_ALL);
-//     LogComponentEnable("LoraInterferenceHelper", LOG_LEVEL_ALL);
-//     LogComponentEnable("LorawanMac", LOG_LEVEL_ALL);
-//     LogComponentEnable("EndDeviceLorawanMac", LOG_LEVEL_ALL);
-//     LogComponentEnable("ClassAEndDeviceLorawanMac", LOG_LEVEL_ALL);
-//     // LogComponentEnable("GatewayLorawanMac", LOG_LEVEL_ALL);
-//     LogComponentEnable("LogicalLoraChannelHelper", LOG_LEVEL_ALL);
-//     LogComponentEnable("LogicalLoraChannel", LOG_LEVEL_ALL);
-//     LogComponentEnable("LoraHelper", LOG_LEVEL_ALL);
-//     LogComponentEnable("LoraPhyHelper", LOG_LEVEL_ALL);
-//     LogComponentEnable("LorawanMacHelper", LOG_LEVEL_ALL);
-//     LogComponentEnable("OneShotSenderHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("OneShotSender", LOG_LEVEL_ALL);
-    // LogComponentEnable("LorawanMacHeader", LOG_LEVEL_ALL);
-    // LogComponentEnable("LoraFrameHeader", LOG_LEVEL_ALL);
-    // LogComponentEnableAll(LOG_PREFIX_FUNC);
-    // LogComponentEnableAll(LOG_PREFIX_NODE);
-    // LogComponentEnableAll(LOG_PREFIX_TIME);
-
+    //  Propagation 
     Ptr<LogDistancePropagationLossModel> loss = CreateObject<LogDistancePropagationLossModel>();
     loss->SetPathLossExponent(PATH_LOSS_EXPONENT);
     loss->SetReference(REFERENCE_DISTANCE, REFERENCE_LOSS);
 
     Ptr<PropagationDelayModel> delay = CreateObject<ConstantSpeedPropagationDelayModel>();
-
-    // LoraChannel class is used to interconnect the LoRa PHY layers of all devices wishing to
-    // communicate using this technology.
     Ptr<LoraChannel> channel = CreateObject<LoraChannel>(loss, delay);
 
+    //  Mobility 
     MobilityHelper mobility;
     Ptr<ListPositionAllocator> allocator = CreateObject<ListPositionAllocator>();
-    allocator->Add(Vector(0, 0, 0));      // Gateway at origin
-    allocator->Add(Vector(1000, 0, 0));   // End device 1: 1km to the east
-    allocator->Add(Vector(500, 866, 0));  // End device 2: 1km to the northeast (60 degrees)
-    allocator->Add(Vector(-750, 750, 0)); // End device 3: ~1km to the northwest
+    allocator->Add(Vector(0, 0, 0));      // End Device 0
+    allocator->Add(Vector(1000, 0, 0));   // End Device 1: 1 km east
+    allocator->Add(Vector(500, 866, 0));  // End Device 2: ~1 km NE
+    allocator->Add(Vector(-750, 750, 0)); // Gateway:      ~1.06 km NW
     mobility.SetPositionAllocator(allocator);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
-    LoraPhyHelper phyHelper = LoraPhyHelper();
+    // Helpers
+    LoraPhyHelper phyHelper;
     phyHelper.SetChannel(channel);
-    LorawanMacHelper macHelper = LorawanMacHelper();
-    LoraHelper helper = LoraHelper();
+    LorawanMacHelper macHelper;
+    LoraHelper helper;
 
-    // Create a LoraDeviceAddressGenerator
+    //  Address generator 
     uint8_t nwkId = 54;
     uint32_t nwkAddr = 1864;
     Ptr<LoraDeviceAddressGenerator> addrGen =
         CreateObject<LoraDeviceAddressGenerator>(nwkId, nwkAddr);
 
+    //  End Devices 
     NodeContainer endDevices;
-    endDevices.Create(3); // Create 3 end devices
-    g_endDevices = endDevices;
-    mobility.Install(endDevices); // Assign a mobility model to the nodes
+    endDevices.Create(3);
+    mobility.Install(endDevices);
 
-    /*
-    Create a netdevice for each gateway. NetDeviceContainer holds together pointers to
-    LoraChannel, LoraPhy and LorawanMac, exposing methods through which Application instances can
-    send packets.
-    */
-    phyHelper.SetDeviceType(LoraPhyHelper::ED); // ED = End Device type
+    phyHelper.SetDeviceType(LoraPhyHelper::ED);
     macHelper.SetDeviceType(LorawanMacHelper::ED_A);
     macHelper.SetAddressGenerator(addrGen);
     macHelper.SetRegion(LorawanMacHelper::EU);
-    NetDeviceContainer endDevicesNetDevices = helper.Install(phyHelper, macHelper, endDevices); // Install ED devices
+    NetDeviceContainer edNetDevices = helper.Install(phyHelper, macHelper, endDevices);
 
-    NodeContainer gateway;
-    gateway.Create(1);
-    g_gateways = gateway;
-    mobility.Install(gateway);
-
-    phyHelper.SetDeviceType(LoraPhyHelper::GW); // GW = Gateway type
-    macHelper.SetDeviceType(LorawanMacHelper::GW);
-    NetDeviceContainer gatewaysNetDevices = helper.Install(phyHelper, macHelper, gateway);
-
-    // Connect callback to gateway MAC to see received packets
-    for (uint32_t i = 0; i < gateway.GetN(); i++)
-    {
-        Ptr<Node> gwNode = gateway.Get(i);
-        Ptr<NetDevice> netDevice = gwNode->GetDevice(0);
-        Ptr<LoraNetDevice> loraNetDevice = DynamicCast<LoraNetDevice>(netDevice);
-        Ptr<LorawanMac> mac = loraNetDevice->GetMac();
-        Ptr<GatewayLorawanMac> gwMac = DynamicCast<GatewayLorawanMac>(mac);
-
-        // Connect to the ReceivedPacket trace source
-        gwMac->TraceConnectWithoutContext("ReceivedPacket",
-                                          MakeCallback(&OnPacketReceptionCallback));
-    }
-
+    // Set end devices to use CONFIRMED uplinks so the network server sends ACK downlinks
     for (uint32_t i = 0; i < endDevices.GetN(); i++)
     {
-        Ptr<Node> endDevice = endDevices.Get(i);
-        Ptr<NetDevice> netDevice = endDevice->GetDevice(0);
-        Ptr<LoraNetDevice> loraNetDevice = DynamicCast<LoraNetDevice>(netDevice);
-        Ptr<LorawanMac> mac = loraNetDevice->GetMac();
-        Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(mac);
-        Ptr<EndDeviceLoraPhy> edPhy = DynamicCast<EndDeviceLoraPhy>(loraNetDevice->GetPhy());
-
-        // MAC-level trace: fires when a downlink is fully parsed and addressed to this device
-        edMac->TraceConnectWithoutContext("ReceivedPacket",
-                                          MakeCallback(&OnEndDeviceMacReceptionCallback));
-
-        // PHY-level traces: fires for any packet arriving at the radio
-        edPhy->TraceConnectWithoutContext("ReceivedPacket",
-                                          MakeCallback(&OnEndDevicePhyReceptionCallback));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongFrequency",
-                                          MakeCallback(&OnEndDeviceWrongFrequency));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongSpreadingFactor",
-                                          MakeCallback(&OnEndDeviceWrongSf));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseUnderSensitivity",
-                                          MakeCallback(&OnEndDeviceUnderSensitivity));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseInterference",
-                                          MakeCallback(&OnEndDeviceInterference));
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(edNetDevices.Get(i));
+        Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
+        edMac->SetMType(LorawanMacHeader::CONFIRMED_DATA_UP);
     }
 
-    LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateway, channel);
+    //  Gateway 
+    NodeContainer gateways;
+    gateways.Create(1);
+    mobility.Install(gateways);
 
+    phyHelper.SetDeviceType(LoraPhyHelper::GW);
+    macHelper.SetDeviceType(LorawanMacHelper::GW);
+    NetDeviceContainer gwNetDevices = helper.Install(phyHelper, macHelper, gateways);
+
+    //  Spreading factor assignment 
+    LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateways, channel);
+
+    //  Network Server + P2P backhaul 
     Ptr<Node> networkServer = CreateObject<Node>();
 
-    // PointToPoint links between gateways and server
     PointToPointHelper p2p;
     p2p.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
     p2p.SetChannelAttribute("Delay", StringValue("2ms"));
-    
-    // Store network server app registration details
+
     P2PGwRegistration_t gwRegistration;
-    for (auto gw = gateway.Begin(); gw != gateway.End(); ++gw)
+    for (auto gw = gateways.Begin(); gw != gateways.End(); ++gw)
     {
         auto container = p2p.Install(networkServer, *gw);
         auto serverP2PNetDev = DynamicCast<PointToPointNetDevice>(container.Get(0));
         gwRegistration.emplace_back(serverP2PNetDev, *gw);
     }
 
-    // Install the NetworkServer application on the network server
-    NetworkServerHelper networkServerHelper;
-    networkServerHelper.SetGatewaysP2P(gwRegistration);
-    networkServerHelper.SetEndDevices(endDevices);
-    networkServerHelper.Install(networkServer);
+    NetworkServerHelper nsHelper;
+    nsHelper.SetGatewaysP2P(gwRegistration);
+    nsHelper.SetEndDevices(endDevices);
+    nsHelper.Install(networkServer);
 
-    // Install the Forwarder application on the gateways
+    //  Forwarder on gateway (bridges LoRa <-> P2P) 
     ForwarderHelper forwarderHelper;
-    forwarderHelper.Install(gateway);
+    forwarderHelper.Install(gateways);
 
-    // Install OneShotSender applications on the end devices so they actually send uplinks
-    // Stagger send times to avoid all devices transmitting at the exact same instant
-    for (uint32_t i = 0; i < endDevices.GetN(); i++)
+    // Gateway MAC: log uplinks
+    for (uint32_t i = 0; i < gateways.GetN(); i++)
     {
-        OneShotSenderHelper oneShotHelper;
-        oneShotHelper.SetSendTime(Seconds(2 + i * 5));
-        oneShotHelper.Install(endDevices.Get(i));
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(gateways.Get(i)->GetDevice(0));
+        Ptr<GatewayLorawanMac> gwMac = DynamicCast<GatewayLorawanMac>(lnd->GetMac());
+        gwMac->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnGatewayMacReceive));
     }
 
-    // Print device positions
-    PrintDevicePositions(gateway, "Gateway");
+    // End device MAC + PHY: log downlinks and loss reasons
+    for (uint32_t i = 0; i < endDevices.GetN(); i++)
+    {
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(edNetDevices.Get(i));
+        Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
+        Ptr<EndDeviceLoraPhy> edPhy = DynamicCast<EndDeviceLoraPhy>(lnd->GetPhy());
+
+        edMac->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnEndDeviceMacReceive));
+        edPhy->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnEndDevicePhyReceive));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongFrequency",
+                                          MakeCallback(&OnLostWrongFrequency));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongSpreadingFactor",
+                                          MakeCallback(&OnLostWrongSf));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseUnderSensitivity",
+                                          MakeCallback(&OnLostUnderSensitivity));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseInterference",
+                                          MakeCallback(&OnLostInterference));
+    }
+
+    // Network server: log when it receives uplinks
+    Ptr<NetworkServer> nsApp = DynamicCast<NetworkServer>(networkServer->GetApplication(0));
+    nsApp->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnNetworkServerReceive));
+
+    PeriodicSenderHelper senderHelper;
+    senderHelper.SetPeriod(Seconds(10));
+    senderHelper.SetPacketSize(10);
+    ApplicationContainer apps = senderHelper.Install(endDevices);
+    for (uint32_t i = 0; i < apps.GetN(); i++)
+    {
+        apps.Get(i)->SetStartTime(Seconds(2 + i * 5));
+    }
+
+    PrintDevicePositions(gateways, "Gateway");
     PrintDevicePositions(endDevices, "End Device");
 
-    Simulator::Stop(Seconds(1000));
-    NS_LOG_INFO("Running simulation...");
+    Simulator::Stop(Seconds(100));
+    NS_LOG_UNCOND("\nRunning simulation...\n");
     Simulator::Run();
     Simulator::Destroy();
 
-    NS_LOG_INFO("Simulation finished!");
-
+    NS_LOG_UNCOND("\nSimulation finished!");
     return 0;
 }
