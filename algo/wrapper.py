@@ -1,11 +1,15 @@
-import os
-import json
-import ctypes
+# pyright:basic
 
-import grpc
+import ctypes
+import json
+import logging
+import os
+from typing import Any
+
 from chirpstack_api import api
 from chirpstack_api.api import internal_pb2, internal_pb2_grpc
-import logging
+from chirpstack_api.api.internal_pb2 import StreamDeviceFramesRequest
+import grpc
 
 # set up logg
 logging.basicConfig(level=logging.INFO if not os.environ.get("DEBUG") else logging.DEBUG)
@@ -31,14 +35,14 @@ CHIRPSTACK_API_KEY = os.environ["CHIRPSTACK_API_KEY"]
 DEV_EUIS = os.environ["DEV_EUIS"].split(",")
 
 # https://github.com/chirpstack/chirpstack/blob/master/api/proto/api/internal.proto#L43
-def get_latest_uplink(client, dev_eui, auth):
-    req = internal_pb2.StreamDeviceFramesRequest(dev_eui=dev_eui)
+def get_latest_uplink(client, dev_eui, auth) -> tuple[Any, Any, Any]:
+    req: StreamDeviceFramesRequest = internal_pb2.StreamDeviceFramesRequest(dev_eui=dev_eui)
     for frame in client.StreamDeviceFrames(req, metadata=auth):
         body = json.loads(frame.body)
         lora = body["tx_info"]["modulation"]["lora"]
         rssi = body["rx_info"][0]["rssi"]
         return lora["spreadingFactor"], lora["bandwidth"], rssi
-    return None
+    raise Exception("No uplink frames found")
 
 
 def main():
