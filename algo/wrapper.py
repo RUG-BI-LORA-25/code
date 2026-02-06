@@ -6,7 +6,6 @@ import logging
 import os
 from typing import Any
 
-from chirpstack_api import api
 from chirpstack_api.api import internal_pb2, internal_pb2_grpc
 from chirpstack_api.api.internal_pb2 import StreamDeviceFramesRequest
 import grpc
@@ -50,19 +49,18 @@ def main():
     channel = grpc.insecure_channel(CHIRPSTACK_HOST)
     
     internal = internal_pb2_grpc.InternalServiceStub(channel)
-
-    for dev_eui in DEV_EUIS:
-        sf, bw, rssi = get_latest_uplink(internal, dev_eui, auth)
-        
-        if sf is not None:
+    current_uplinks = [(None, None, None)] * len(DEV_EUIS)
+    while True:
+        for i, dev_eui in enumerate(DEV_EUIS):
+            sf, bw, rssi = get_latest_uplink(internal, dev_eui, auth)
+            if (sf, bw, rssi) == current_uplinks[i]:
+                continue
+            current_uplinks[i] = (sf, bw, rssi)
             logging.debug(f" SF: {sf}, BW: {bw}, RSSI: {rssi}")
             state = State(sf=sf, bw=float(bw), pwr=rssi)
-        else:
-            logging.warning("No uplink, using defaults")
-            state = State(sf=12, bw=125000.0, pwr=14)
-        
-        # call
-        lib.pid(ctypes.byref(state))
+            
+            # call
+            lib.pid(ctypes.byref(state))
 
 
 if __name__ == "__main__":
