@@ -9,12 +9,13 @@ class LORA{
    public:
     LORA(int nss, int reset, int dio0, int dio1, SPIClass& spi);
     void begin();
+    void reBegin(State target);
     int16_t setFrequency(float freq);
     int16_t setBandwidth(float bw);
     int16_t setSpreadingFactor(uint8_t sf);
     int16_t setPower(int8_t power);
     int16_t setGain(uint8_t gain);
-    int16_t sendData(const uint8_t* data, size_t len);
+    int16_t sendData(const uint8_t* data, size_t len, uint8_t* dlBuf = nullptr, size_t* dlLen = nullptr);
     
    private:
     LoRaWANNode node;

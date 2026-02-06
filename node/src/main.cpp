@@ -54,7 +54,6 @@ int main(void) {
     LORA lora(LORA_NSS, LORA_RESET, LORA_DIO0, LORA_DIO1, spi);
     lora.begin();
     
-
     // LED pin
     pinMode(LED_PIN, OUTPUT);
 
@@ -67,7 +66,10 @@ int main(void) {
             uint8_t len = sensor->serialize(buffer + offset);
             offset += len;
         }
-        int state = lora.sendData(buffer, offset);
+        uint8_t dlBuf[sizeof(State)];
+        size_t dlLen = 0;
+
+        int16_t state = lora.sendData(buffer, offset, dlBuf, &dlLen);
         
         #ifdef DEBUG
         if (state >= 0) {
@@ -77,7 +79,20 @@ int main(void) {
             Serial.println(state);
         }
         #endif
+        if (state > 0 && dlLen == sizeof(State)) {
+            State params;
+            memcpy(&params, dlBuf, sizeof(params));
 
-        // serialEventRun();
+            #ifdef DEBUG
+            Serial.print("[MAIN] Downlink!! SF: ");
+            Serial.print(params.spreadingFactor);
+            Serial.print(", BW: ");
+            Serial.print(params.bandwidth);
+            Serial.print(", PWR: ");
+            Serial.println(params.rssi);
+            #endif
+
+            lora.reBegin(params);
+        }
     }
 }

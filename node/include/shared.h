@@ -22,4 +22,9 @@ void exception(const String& msg, HardwareSerial& serial);
 void initDisplay(TwoWire* wire);
 void blinkInternal(int times, int delayMs);
 
+struct __attribute__((packed)) State {
+    uint8_t spreadingFactor;
+    float bandwidth;
+    int rssi;
+};
 // void scanI2CBus(TwoWire* I2CBus);

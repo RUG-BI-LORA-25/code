@@ -17,8 +17,9 @@ lib = ctypes.CDLL("./libalgo.so")
 
 
 class State(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
-        ("sf", ctypes.c_int),
+        ("sf", ctypes.c_uint8),
         ("bw", ctypes.c_float),
         ("pwr", ctypes.c_int),
     ]
@@ -43,6 +44,26 @@ def get_latest_uplink(client, dev_eui, auth) -> tuple[Any, Any, Any]:
         return lora["spreadingFactor"], lora["bandwidth"], rssi
     raise Exception("No uplink frames found")
 
+import struct
+from chirpstack_api.api import device_pb2, device_pb2_grpc
+
+def send_downlink(client, dev_eui, sf, bw, pwr, auth):
+    # SF (1 byte) | BW (4 bytes, float32 LE) | Power (1 byte, signed)
+    payload = struct.pack("<Bfi", sf, bw, pwr)
+    device_client = device_pb2_grpc.DeviceServiceStub(client._channel)
+
+    req = device_pb2.EnqueueDeviceQueueItemRequest(
+        queue_item=device_pb2.DeviceQueueItem(
+            dev_eui=dev_eui,
+            confirmed=False,
+            f_port=2,
+            data=payload,
+        ),
+        flush_queue=True,
+    )
+
+    resp = device_client.Enqueue(req, metadata=auth)
+    logging.info(f"Downlink for {dev_eui}: id={resp.id} (SF={sf}, BW={bw}, PWR={pwr})")
 
 def main():
     auth = [("authorization", f"Bearer {CHIRPSTACK_API_KEY}")]
@@ -61,7 +82,7 @@ def main():
             
             # call
             lib.pid(ctypes.byref(state))
-
+            send_downlink(internal, dev_eui, state.sf, state.bw, state.pwr, auth)
 
 if __name__ == "__main__":
     main()

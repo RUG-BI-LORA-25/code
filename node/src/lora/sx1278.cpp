@@ -45,6 +45,14 @@ int join(LoRaWANNode& node) {
 }
 #endif
 
+void LORA::reBegin(State target) {
+    log("Reinitializing LoRa with new parameters...", "LORA", Serial);
+    
+    int state = radio.setSpreadingFactor(target.spreadingFactor);
+    state = radio.setBandwidth(target.bandwidth);
+    
+}
+
 void LORA::begin() {
     log("Initializing LoRa SX1278...", "LORA", Serial);
     
@@ -101,20 +109,15 @@ int16_t LORA::setGain(uint8_t gain) {
     return radio.setGain(gain);
 }
 
-int16_t LORA::sendData(const uint8_t* data, size_t len) {
+int16_t LORA::sendData(const uint8_t* data, size_t len, uint8_t* dlBuf, size_t* dlLen) {
     Serial.print("[LORA] Sending ");
     Serial.print(len);
     Serial.println(" bytes...");
     
-    int16_t state = node.sendReceive(data, len);
-    
-    if (state < RADIOLIB_ERR_NONE) {
-        Serial.print("[LORA] sendReceive error: ");
-        Serial.println(state);
-        debug(true, F("Error in sendReceive"), state, false);
-    } else {
-        Serial.println("[LORA] Packet sent successfully");
+    if (dlBuf && dlLen) {
+        return node.sendReceive(data, len, 1, dlBuf, dlLen);
     }
     
-    return state;
+    
+    return node.sendReceive(data, len, 1);
 }
