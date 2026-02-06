@@ -28,7 +28,7 @@ using namespace lorawan;
 #define REFERENCE_DISTANCE 1.0
 #define REFERENCE_LOSS 8.0
 
-#define NOISE_FLOOR -100.0
+#define NOISE_FLOOR - 100.0
 #define SNR(rxPower) ((rxPower) - (NOISE_FLOOR))
 
 NS_LOG_COMPONENT_DEFINE("LorawanSimpleExample");
@@ -76,7 +76,10 @@ OnPacketReceptionCallback(Ptr<const Packet> packet)
     double snr = SNR(rxPower);
     uint8_t sf = tag.GetSpreadingFactor();
     uint32_t freq = tag.GetFrequency();
-    uint8_t dataRate = tag.GetDataRate();
+
+    // The gateway PHY does not set the data rate in the tag, so we derive it from the SF.
+    // EU868 mapping: SF12=DR0, SF11=DR1, SF10=DR2, SF9=DR3, SF8=DR4, SF7=DR5
+    uint8_t dataRate = (sf <= 12 && sf >= 7) ? (12 - sf) : 0;
 
     NS_LOG_UNCOND("\nGateway received uplink:");
     NS_LOG_UNCOND("  RX Power: " << rxPower << " dBm");
@@ -88,18 +91,65 @@ OnPacketReceptionCallback(Ptr<const Packet> packet)
     Simulator::Schedule(Seconds(1.0), &SendDownlinkWithSNR, snr, freq, dataRate);
 }
 
-// Callback when end device receives a packet (downlink)
+// Callback when end device MAC receives a downlink (fully parsed, addressed to this device)
 void
-OnEndDeviceReceptionCallback(Ptr<const Packet> packet)
+OnEndDeviceMacReceptionCallback(Ptr<const Packet> packet)
 {
     Ptr<Packet> packetCopy = packet->Copy();
     uint8_t buffer[256];
     uint32_t size = packetCopy->CopyData(buffer, packetCopy->GetSize());
     std::string payload(reinterpret_cast<char*>(buffer), size);
 
-    NS_LOG_UNCOND("\n=== End Device received downlink ===");
+    NS_LOG_UNCOND("\n=== End Device MAC received downlink ===");
     NS_LOG_UNCOND("  Packet size: " << packet->GetSize() << " bytes");
     NS_LOG_UNCOND("  Payload: " << payload);
+}
+
+// Callback when end device PHY successfully receives a packet
+void
+OnEndDevicePhyReceptionCallback(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    Ptr<Packet> packetCopy = packet->Copy();
+    LoraTag tag;
+    packetCopy->RemovePacketTag(tag);
+
+    NS_LOG_UNCOND("\n=== End Device (Node " << nodeId << ") PHY received downlink ===");
+    NS_LOG_UNCOND("  RX Power: " << tag.GetReceivePower() << " dBm");
+    NS_LOG_UNCOND("  Frequency: " << tag.GetFrequency() << " Hz");
+    NS_LOG_UNCOND("  Spreading Factor: " << (int)tag.GetSpreadingFactor());
+    NS_LOG_UNCOND("  Packet size: " << packet->GetSize() << " bytes");
+}
+
+// Callback for packets lost due to wrong frequency
+void
+OnEndDeviceWrongFrequency(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
+                  << ") dropped downlink: wrong frequency");
+}
+
+// Callback for packets lost due to wrong SF
+void
+OnEndDeviceWrongSf(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
+                  << ") dropped downlink: wrong spreading factor");
+}
+
+// Callback for packets lost due to being under sensitivity
+void
+OnEndDeviceUnderSensitivity(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
+                  << ") dropped downlink: under sensitivity");
+}
+
+// Callback for packets lost due to interference
+void
+OnEndDeviceInterference(Ptr<const Packet> packet, uint32_t nodeId)
+{
+    NS_LOG_UNCOND("\n[LOST] End Device (Node " << nodeId
+                  << ") dropped downlink: interference");
 }
 
 // Helper function to print device position
@@ -122,22 +172,22 @@ PrintDevicePositions(NodeContainer devices, std::string deviceType)
 int
 main(int argc, char* argv[])
 {
-    LogComponentEnable("LorawanSimpleExample", LOG_LEVEL_ALL);
-    // LogComponentEnable("LoraChannel", LOG_LEVEL_INFO);
-    // LogComponentEnable("LoraPhy", LOG_LEVEL_ALL);
-    // LogComponentEnable("EndDeviceLoraPhy", LOG_LEVEL_ALL);
-    // LogComponentEnable("GatewayLoraPhy", LOG_LEVEL_ALL);
-    // LogComponentEnable("LoraInterferenceHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("LorawanMac", LOG_LEVEL_ALL);
-    // LogComponentEnable("EndDeviceLorawanMac", LOG_LEVEL_ALL);
-    // LogComponentEnable("ClassAEndDeviceLorawanMac", LOG_LEVEL_ALL);
-    // LogComponentEnable("GatewayLorawanMac", LOG_LEVEL_ALL);
-    // LogComponentEnable("LogicalLoraChannelHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("LogicalLoraChannel", LOG_LEVEL_ALL);
-    // LogComponentEnable("LoraHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("LoraPhyHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("LorawanMacHelper", LOG_LEVEL_ALL);
-    // LogComponentEnable("OneShotSenderHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("LorawanSimpleExample", LOG_LEVEL_ALL);
+//     // LogComponentEnable("LoraChannel", LOG_LEVEL_INFO);
+//     LogComponentEnable("LoraPhy", LOG_LEVEL_ALL);
+//     LogComponentEnable("EndDeviceLoraPhy", LOG_LEVEL_ALL);
+//     // LogComponentEnable("GatewayLoraPhy", LOG_LEVEL_ALL);
+//     LogComponentEnable("LoraInterferenceHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("LorawanMac", LOG_LEVEL_ALL);
+//     LogComponentEnable("EndDeviceLorawanMac", LOG_LEVEL_ALL);
+//     LogComponentEnable("ClassAEndDeviceLorawanMac", LOG_LEVEL_ALL);
+//     // LogComponentEnable("GatewayLorawanMac", LOG_LEVEL_ALL);
+//     LogComponentEnable("LogicalLoraChannelHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("LogicalLoraChannel", LOG_LEVEL_ALL);
+//     LogComponentEnable("LoraHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("LoraPhyHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("LorawanMacHelper", LOG_LEVEL_ALL);
+//     LogComponentEnable("OneShotSenderHelper", LOG_LEVEL_ALL);
     // LogComponentEnable("OneShotSender", LOG_LEVEL_ALL);
     // LogComponentEnable("LorawanMacHeader", LOG_LEVEL_ALL);
     // LogComponentEnable("LoraFrameHeader", LOG_LEVEL_ALL);
@@ -164,13 +214,6 @@ main(int argc, char* argv[])
     mobility.SetPositionAllocator(allocator);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
-    /*The lorawan module features helpers to configure the PHY and MAC layers on a large number of
-    devices. The two layers are split in two different classes, LorawanMacHelper and LoraPhyHelper,
-    which can be leveraged by a LoraHelper object to fully configure a LoRa device (both for EDs and
-    for GWs). Since the helpers are general purpose (i.e., they can be used both for ED and GW
-    configuration), it is necessary to specify the device type via the SetDeviceType method before
-    the Install method can be called.
-    */
     LoraPhyHelper phyHelper = LoraPhyHelper();
     phyHelper.SetChannel(channel);
     LorawanMacHelper macHelper = LorawanMacHelper();
@@ -196,19 +239,13 @@ main(int argc, char* argv[])
     macHelper.SetDeviceType(LorawanMacHelper::ED_A);
     macHelper.SetAddressGenerator(addrGen);
     macHelper.SetRegion(LorawanMacHelper::EU);
-    NetDeviceContainer endDevicesNetDevices =
-        helper.Install(phyHelper, macHelper, endDevices); // Install ED devices
+    NetDeviceContainer endDevicesNetDevices = helper.Install(phyHelper, macHelper, endDevices); // Install ED devices
 
     NodeContainer gateway;
     gateway.Create(1);
     g_gateways = gateway;
     mobility.Install(gateway);
 
-    /*
-    Create a netdevice for each gateway. NetDeviceContainer holds together pointers to
-    LoraChannel, LoraPhy and LorawanMac, exposing methods through which Application instances can
-    send packets.
-    */
     phyHelper.SetDeviceType(LoraPhyHelper::GW); // GW = Gateway type
     macHelper.SetDeviceType(LorawanMacHelper::GW);
     NetDeviceContainer gatewaysNetDevices = helper.Install(phyHelper, macHelper, gateway);
@@ -234,35 +271,25 @@ main(int argc, char* argv[])
         Ptr<LoraNetDevice> loraNetDevice = DynamicCast<LoraNetDevice>(netDevice);
         Ptr<LorawanMac> mac = loraNetDevice->GetMac();
         Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(mac);
+        Ptr<EndDeviceLoraPhy> edPhy = DynamicCast<EndDeviceLoraPhy>(loraNetDevice->GetPhy());
 
-        // Connect to the ReceivedPacket trace source
+        // MAC-level trace: fires when a downlink is fully parsed and addressed to this device
         edMac->TraceConnectWithoutContext("ReceivedPacket",
-                                        MakeCallback(&OnEndDeviceReceptionCallback));
+                                          MakeCallback(&OnEndDeviceMacReceptionCallback));
+
+        // PHY-level traces: fires for any packet arriving at the radio
+        edPhy->TraceConnectWithoutContext("ReceivedPacket",
+                                          MakeCallback(&OnEndDevicePhyReceptionCallback));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongFrequency",
+                                          MakeCallback(&OnEndDeviceWrongFrequency));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongSpreadingFactor",
+                                          MakeCallback(&OnEndDeviceWrongSf));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseUnderSensitivity",
+                                          MakeCallback(&OnEndDeviceUnderSensitivity));
+        edPhy->TraceConnectWithoutContext("LostPacketBecauseInterference",
+                                          MakeCallback(&OnEndDeviceInterference));
     }
 
-    // Send packets at different times from each device
-    OneShotSenderHelper oneShotSenderHelper;
-
-    // Device 0 sends at 2 seconds
-    oneShotSenderHelper.SetSendTime(Seconds(2));
-    oneShotSenderHelper.Install(endDevices.Get(0));
-
-    // Device 1 sends at 5 seconds
-    oneShotSenderHelper.SetSendTime(Seconds(5));
-    oneShotSenderHelper.Install(endDevices.Get(1));
-
-    // Device 2 sends at 8 seconds
-    oneShotSenderHelper.SetSendTime(Seconds(8));
-    oneShotSenderHelper.Install(endDevices.Get(2));
-
-    /*The LorawanMacHelper also exposes a method to set up the Spreading Factors used by the devices
-     * participating in the network automatically, based on the channel conditions and on the
-     * placement of devices and gateways. This procedure is contained in the static method
-     * SetSpreadingFactorsUp, and works by trying to minimize the time-on-air of packets, thus
-     * assigning the lowest possible spreading factor such that reception by at least one gateway is
-     * still possible. It should be noted that this is an heuristic, and that it doesn’t guarantee
-     * that the SF distribution is optimal for the best possible operation of the network. In fact,
-     * finding such a distribution based on the network scenario is still an open challenge.*/
     LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateway, channel);
 
     Ptr<Node> networkServer = CreateObject<Node>();
@@ -291,11 +318,20 @@ main(int argc, char* argv[])
     ForwarderHelper forwarderHelper;
     forwarderHelper.Install(gateway);
 
+    // Install OneShotSender applications on the end devices so they actually send uplinks
+    // Stagger send times to avoid all devices transmitting at the exact same instant
+    for (uint32_t i = 0; i < endDevices.GetN(); i++)
+    {
+        OneShotSenderHelper oneShotHelper;
+        oneShotHelper.SetSendTime(Seconds(2 + i * 5));
+        oneShotHelper.Install(endDevices.Get(i));
+    }
+
     // Print device positions
     PrintDevicePositions(gateway, "Gateway");
     PrintDevicePositions(endDevices, "End Device");
 
-    Simulator::Stop(Seconds(100));
+    Simulator::Stop(Seconds(1000));
     NS_LOG_INFO("Running simulation...");
     Simulator::Run();
     Simulator::Destroy();
