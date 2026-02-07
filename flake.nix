@@ -25,6 +25,7 @@
           ];
           extraPythonPackages = with pkgs.python3Packages; [
             numpy
+            cryptography
             requests
             pyzmq
           ];

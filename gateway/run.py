@@ -66,28 +66,50 @@ def main():
     transmitter = Transmitter()
     forwarder.set_transmitter(transmitter)
     packet_count = [0]
+    receiver = [None]  # mutable ref so we can stop/restart
     
     def on_packet(data, crc_ok):
         packet_count[0] += 1
         print_packet_info(data, crc_ok, packet_count[0])
         forwarder.send_push_data([{'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0}])
     
-    receiver = Receiver(on_packet)
+    def start_receiver():
+        rx = Receiver(on_packet)
+        rx.start()
+        receiver[0] = rx
+        print("    [RX] Receiver started")
+    
+    def stop_receiver():
+        if receiver[0]:
+            print("    [RX] Stopping receiver for TX...")
+            receiver[0].stop()
+            receiver[0].wait()
+            receiver[0] = None
+    
+    forwarder.set_receiver(start_receiver, stop_receiver)
     
     print("\nStarting gateway... Press Ctrl+C to stop\n")
     
     forwarder.send_stat()
-    forwarder.send_keepalive()
-    receiver.start()
+    forwarder.send_pull_data()
+    start_receiver()
     
+    # Send PULL_DATA every 10s so ChirpStack knows we're alive.
+    # Send stats alongside.
     def keepalive_loop():
         while True:
             time.sleep(10)
             forwarder.send_stat()
-            forwarder.send_keepalive()
             forwarder.send_pull_data()
-            forwarder.check_downlink()
     threading.Thread(target=keepalive_loop, daemon=True).start()
+
+    # Poll for downlinks frequently — ChirpStack sends PULL_RESP
+    # shortly after receiving our PUSH_DATA uplink.
+    def downlink_loop():
+        while True:
+            forwarder.check_downlink()
+            time.sleep(0.1)
+    threading.Thread(target=downlink_loop, daemon=True).start()
     
     try:
         while True:
@@ -95,8 +117,9 @@ def main():
     except KeyboardInterrupt:
         print("\n\nStopping gateway...")
     
-    receiver.stop()
-    receiver.wait()
+    if receiver[0]:
+        receiver[0].stop()
+        receiver[0].wait()
     print(f"Total packets received: {packet_count[0]}")
 
 

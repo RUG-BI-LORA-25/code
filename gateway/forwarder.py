@@ -22,50 +22,128 @@ class PacketForwarder:
         self.port = port
         self.uid = 0
         self.gateway_eui = gateway_eui
-        self.token = 0
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
         self.transmitter = None
-        self.downlink_queue = []
+        self._tmst_epoch = time.monotonic()
+        self._last_uplink_mono = None  # monotonic time of last uplink
     
     def set_transmitter(self, tx):
         self.transmitter = tx
     
-    def check_downlink(self):
-        try:
-            data, _ = self.sock.recvfrom(1024)
-            if len(data) >= 4 and data[3] == 0x03:  # PULL_RESP
-                self._handle_downlink(data[4:])
-        except BlockingIOError:
-            pass
+    def set_receiver(self, rx_start, rx_stop):
+        """Set callbacks to stop/start the receiver for half-duplex TX."""
+        self._rx_start = rx_start
+        self._rx_stop = rx_stop
     
-    def _handle_downlink(self, payload):
-        import json
+    def check_downlink(self):
+        """Drain all pending responses from ChirpStack. Handle any PULL_RESPs."""
+        while True:
+            try:
+                data, _ = self.sock.recvfrom(4096)
+            except BlockingIOError:
+                break
+            if len(data) < 4:
+                continue
+            ident = data[3]
+            if ident == Identifiers.PULL_RESP.value:
+                token = struct.unpack('>H', data[1:3])[0]
+                self._handle_downlink(token, data[4:])
+            elif ident == Identifiers.PUSH_ACK.value:
+                pass  # expected after PUSH_DATA
+            elif ident == Identifiers.PULL_ACK.value:
+                pass  # expected after PULL_DATA
+    
+    def _handle_downlink(self, token, payload):
         try:
             msg = json.loads(payload.decode())
-            if 'txpk' in msg:
-                txpk = msg['txpk']
-                data = base64.b64decode(txpk['data'])
-                if self.transmitter:
+            if 'txpk' not in msg:
+                return
+            txpk = msg['txpk']
+            data = base64.b64decode(txpk['data'])
+
+            # Log the full txpk so we can see what ChirpStack wants
+            print(f"  [DL] txpk: freq={txpk.get('freq')}MHz, datr={txpk.get('datr')}, "
+                  f"tmst={txpk.get('tmst')}, powe={txpk.get('powe')}, "
+                  f"modu={txpk.get('modu')}, size={txpk.get('size')}")
+
+            # Calculate how long to wait before TX.
+            # Do this BEFORE stopping the receiver so the stop time
+            # is absorbed into the wait.
+            delay_s = 0
+            if 'tmst' in txpk:
+                target_tmst = txpk['tmst']
+                current_tmst = self._get_tmst()
+                delta_us = (target_tmst - current_tmst) & 0xFFFFFFFF
+                if delta_us < 30_000_000:
+                    delay_s = delta_us / 1_000_000.0
+                    print(f"  [DL] PULL_RESP: {len(data)} bytes, TX in {delay_s:.2f}s (tmst={target_tmst})")
+                else:
+                    print(f"  [DL] PULL_RESP: {len(data)} bytes, stale tmst — TX immediately")
+            else:
+                print(f"  [DL] PULL_RESP: {len(data)} bytes, no tmst — TX immediately")
+
+            # Stop receiver first (this takes a while with SF12),
+            # then sleep whatever time is left before the TX window.
+            t_before_stop = time.monotonic()
+            if hasattr(self, '_rx_stop'):
+                self._rx_stop()
+            stop_took = time.monotonic() - t_before_stop
+            remaining = delay_s - stop_took
+            if remaining > 0:
+                print(f"  [DL] RX stop took {stop_took:.2f}s, sleeping {remaining:.2f}s more")
+                time.sleep(remaining)
+            else:
+                print(f"  [DL] RX stop took {stop_took:.2f}s (ate into TX window by {-remaining:.2f}s)")
+
+            error = ""
+            if self.transmitter:
+                try:
                     self.transmitter.send(data)
+                    print(f"  [DL] Transmitted {len(data)} bytes")
+                except Exception as e:
+                    error = str(e)
+                    print(f"  [DL] TX error: {e}")
+            else:
+                error = "NO_TRANSMITTER"
+
+            if hasattr(self, '_rx_start'):
+                self._rx_start()
+            self._send_tx_ack(token, error)
         except Exception as e:
             print(f"Downlink error: {e}")
-    
+            self._send_tx_ack(token, str(e))
+
+    def _send_tx_ack(self, token, error=""):
+        """Send TX_ACK to ChirpStack so it pops the downlink from the queue."""
+        header = struct.pack('>BHB', 2, token, Identifiers.TX_ACK.value) + self.gateway_eui
+        if error:
+            ack_payload = json.dumps({"txpk_ack": {"error": error}}).encode()
+        else:
+            ack_payload = json.dumps({"txpk_ack": {"error": "NONE"}}).encode()
+        self.sock.sendto(header + ack_payload, (self.host, self.port))
+        print(f"  [DL] TX_ACK sent (token={token}, error={error or 'NONE'})")
+
     def send_pull_data(self):
-        packet = struct.pack('>B H B', 0x02, self._next_id(), 0x02) + self.gateway_eui
+        packet = struct.pack('>BHB', 0x02, self._next_id(), Identifiers.PULL_DATA.value) + self.gateway_eui
         self.sock.sendto(packet, (self.host, self.port))
 
     def _next_id(self):
         self.uid = (self.uid + 1) & 0xFFFF
         return self.uid
     
+    def _get_tmst(self):
+        """Microsecond counter since gateway start, wrapping at 32 bits."""
+        return int((time.monotonic() - self._tmst_epoch) * 1_000_000) & 0xFFFFFFFF
+
     def send_push_data(self, packets):
         uid = self._next_id()
+        self._last_uplink_mono = time.monotonic()
         
         rxpk = []
         for p in packets:
             rxpk.append({
-                "tmst": int(time.time() * 1000000) & 0xFFFFFFFF, 
+                "tmst": self._get_tmst(),
                 "freq": CENTER_FREQ / 1e6,
                 "chan": 0,
                 "rfch": 0,
