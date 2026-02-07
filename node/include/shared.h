@@ -23,8 +23,8 @@ void initDisplay(TwoWire* wire);
 void blinkInternal(int times, int delayMs);
 
 struct __attribute__((packed)) State {
-    uint8_t spreadingFactor;
+    int datarate;
     float bandwidth;
-    int rssi;
+    int power;
 };
 // void scanI2CBus(TwoWire* I2CBus);

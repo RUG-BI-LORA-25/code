@@ -52,7 +52,8 @@ async def send_downlink(
     pwr: int,
     auth: list[tuple[str, str]],
 ) -> None:
-    payload = struct.pack("<Bfb", sf, bw, pwr)
+    payload = struct.pack("<ifi", sf, bw, pwr)
+    
     req = device_pb2.EnqueueDeviceQueueItemRequest(
         queue_item=device_pb2.DeviceQueueItem(
             dev_eui=dev_eui,

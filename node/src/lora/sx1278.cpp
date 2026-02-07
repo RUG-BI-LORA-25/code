@@ -48,8 +48,8 @@ int join(LoRaWANNode& node) {
 void LORA::reBegin(State target) {
     log("Reinitializing LoRa with new parameters...", "LORA", Serial);
     
-    int state = radio.setSpreadingFactor(target.spreadingFactor);
-    state = radio.setBandwidth(target.bandwidth);
+    node.setDatarate(target.datarate);
+    node.setTxPower(target.power);
     
 }
 

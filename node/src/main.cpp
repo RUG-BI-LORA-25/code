@@ -23,7 +23,7 @@ int main(void) {
     
 
     Sensor *sensors[] = {
-        // new BME280(BME280_I2C_ADDR, &I2CBus),
+        new BME280(BME280_I2C_ADDR, &I2CBus),
         new Photoresistor(PHOTORESISTOR_PIN)
     };
 
@@ -66,7 +66,7 @@ int main(void) {
             uint8_t len = sensor->serialize(buffer + offset);
             offset += len;
         }
-        uint8_t dlBuf[sizeof(State)];
+        uint8_t dlBuf[251];  // max LoRaWAN downlink payload
         size_t dlLen = 0;
 
         int16_t state = lora.sendData(buffer, offset, dlBuf, &dlLen);
@@ -78,18 +78,32 @@ int main(void) {
             Serial.print("[MAIN] Failed to send data, error: ");
             Serial.println(state);
         }
+
+        if (state > 0) {
+            Serial.print("[MAIN] Downlink received (RX window ");
+            Serial.print(state);
+            Serial.print("), ");
+            Serial.print(dlLen);
+            Serial.println(" bytes:");
+            Serial.print("[MAIN]   HEX: ");
+            for (size_t i = 0; i < dlLen; i++) {
+                if (dlBuf[i] < 0x10) Serial.print('0');
+                Serial.print(dlBuf[i], HEX);
+            }
+            Serial.println();
+        }
         #endif
         if (state > 0 && dlLen == sizeof(State)) {
             State params;
             memcpy(&params, dlBuf, sizeof(params));
 
             #ifdef DEBUG
-            Serial.print("[MAIN] Downlink!! SF: ");
-            Serial.print(params.spreadingFactor);
+            Serial.print("[MAIN] Downlink!! DR: ");
+            Serial.print(params.datarate);
             Serial.print(", BW: ");
             Serial.print(params.bandwidth);
             Serial.print(", PWR: ");
-            Serial.println(params.rssi);
+            Serial.println(params.power);
             #endif
 
             lora.reBegin(params);
