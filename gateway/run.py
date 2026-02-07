@@ -2,7 +2,6 @@
 import time
 import struct
 import threading
-import queue
 from datetime import datetime
 from config import (CENTER_FREQ, SPREADING_FACTOR, BANDWIDTH,
                     CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
@@ -48,12 +47,6 @@ def main():
     forwarder = PacketForwarder(CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
     transmitter = Transmitter()
 
-    dl_queue = queue.Queue()
-
-    forwarder.set_transmitter(type('TX', (), {
-        'send': lambda self, data: dl_queue.put(data)
-    })())
-
     packet_count = [0]
     radio_lock = threading.Lock()
     receiver_ref = [None]
@@ -63,16 +56,22 @@ def main():
         rx.start()
         return rx
 
-    def transmit_now(data):
+    def stop_receiver():
+        """Stop the receiver (half-duplex: must stop RX before TX)."""
         with radio_lock:
             if receiver_ref[0]:
                 receiver_ref[0].stop()
                 receiver_ref[0].wait()
                 receiver_ref[0] = None
 
-            transmitter.send(data)
-
+    def start_receiver_again():
+        """Restart the receiver after TX completes."""
+        with radio_lock:
             receiver_ref[0] = start_receiver(on_packet)
+
+    # Give the forwarder the real transmitter + RX stop/start callbacks
+    forwarder.set_transmitter(transmitter)
+    forwarder.set_receiver(start_receiver_again, stop_receiver)
 
     def on_packet(data, crc_ok):
         packet_count[0] += 1
@@ -83,11 +82,6 @@ def main():
         forwarder.send_push_data([{
             'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0
         }])
-
-        if not dl_queue.empty():
-            dl_data = dl_queue.get()
-            print(f"    Pending downlink: {dl_data.hex()} ({len(dl_data)} bytes)")
-            threading.Timer(4, transmit_now, args=[dl_data]).start()
 
     print("\nStarting gateway... Press Ctrl+C to stop\n")
 
@@ -106,6 +100,7 @@ def main():
     def downlink_loop():
         while True:
             forwarder.check_downlink()
+            time.sleep(0.01)
 
     threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=downlink_loop, daemon=True).start()

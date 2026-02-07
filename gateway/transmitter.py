@@ -11,7 +11,12 @@ from config import (CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE,
 class Transmitter(gr.top_block):
     def __init__(self):
         gr.top_block.__init__(self, "HackRF LoRa Transmitter")
+        self._built = False
 
+    def _build_graph(self):
+        """Build the GnuRadio flowgraph on first use (lazy init)."""
+        if self._built:
+            return
         # is_hex=True: we pass hex string, block decodes to bytes
         self.whitening = lora_sdr.whitening(True, False, ',', 'frame_len')
         self.header = lora_sdr.header(False, False, CODING_RATE)  # explicit header, NO CRC for downlinks
@@ -40,6 +45,7 @@ class Transmitter(gr.top_block):
         self.connect((self.gray_decode, 0), (self.modulate, 0))
         self.connect((self.modulate, 0), (self.iq_invert, 0))   # invert IQ
         self.connect((self.iq_invert, 0), (self.osmosdr_sink, 0))
+        self._built = True
 
     def send(self, data):
         hex_str = data.hex()
