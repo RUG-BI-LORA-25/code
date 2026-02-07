@@ -8,6 +8,7 @@
 #include "ns3/gateway-lorawan-mac.h"
 #include "ns3/log.h"
 #include "ns3/lora-device-address-generator.h"
+#include "ns3/lora-frame-header.h"
 #include "ns3/lora-helper.h"
 #include "ns3/lora-net-device.h"
 #include "ns3/lora-tag.h"
@@ -22,104 +23,228 @@
 #include "ns3/simulator.h"
 #include "ns3/string.h"
 
+#include <algorithm>
+#include <cmath>
+#include <map>
+
 using namespace ns3;
 using namespace lorawan;
 
-#define PATH_LOSS_EXPONENT 3.5
-#define REFERENCE_DISTANCE 1.0
-#define REFERENCE_LOSS 8.0
+NS_LOG_COMPONENT_DEFINE("LorawanPidAdr");
 
-#define NOISE_FLOOR -100.0
-#define SNR(rxPower) ((rxPower) - (NOISE_FLOOR))
+constexpr double PATH_LOSS_EXPONENT = 3.5;
+constexpr double REFERENCE_DISTANCE = 1.0;
+constexpr double REFERENCE_LOSS = 8.0;
 
-NS_LOG_COMPONENT_DEFINE("LorawanSimpleExample");
+// EU868 transmit power limits (dBm ERP)
+constexpr double P_MIN = 2.0;
+constexpr double P_MAX = 14.0;
+constexpr double P_INITIAL = 14.0;
 
-void
-OnGatewayMacReceive(Ptr<const Packet> packet)
+// Spreading factor limits
+constexpr uint8_t SF_MIN = 7;
+constexpr uint8_t SF_MAX = 12;
+constexpr uint8_t SF_INITIAL = 7;
+
+// PD gains
+constexpr double KP = 0.5;
+constexpr double KD = 0.1;
+
+// Slow-loop thresholds
+constexpr double MARGIN_THRESHOLD = 5.0; // dB above target to consider SF decrease
+constexpr uint32_t STABILITY_WINDOW = 3; // consecutive good packets before SF change
+constexpr double COMFORT_MARGIN = 10.0;
+
+static const double SNR_TARGET_PER_SF[6] = {
+    -7.5,  // SF7
+    -10.0, // SF8
+    -12.5, // SF9
+    -15.0, // SF10
+    -17.5, // SF11
+    -20.0  // SF12
+};
+
+constexpr double NOISE_FLOOR_DBM = -123.0;
+
+inline double
+ComputeSnr(double rxPowerDbm)
 {
-    Ptr<Packet> packetCopy = packet->Copy();
-
-    LoraTag tag;
-    packetCopy->RemovePacketTag(tag);
-
-    double rxPower = tag.GetReceivePower();
-    double snr = SNR(rxPower);
-    uint8_t sf = tag.GetSpreadingFactor();
-    uint32_t freq = tag.GetFrequency();
-    // EU868: SF12=DR0 ... SF7=DR5
-    uint8_t dataRate = (sf >= 7 && sf <= 12) ? (12 - sf) : 0;
-
-    NS_LOG_UNCOND("\n[GW] Uplink received at " << Simulator::Now().As(Time::S));
-    NS_LOG_UNCOND("  RX Power : " << rxPower << " dBm");
-    NS_LOG_UNCOND("  SNR      : " << snr << " dB");
-    NS_LOG_UNCOND("  SF       : " << (int)sf << "  (DR" << (int)dataRate << ")");
-    NS_LOG_UNCOND("  Frequency: " << freq << " Hz");
+    return rxPowerDbm - NOISE_FLOOR_DBM;
 }
 
-void
-OnEndDeviceMacReceive(Ptr<const Packet> packet)
+inline double
+SnrTarget(uint8_t sf)
 {
-    NS_LOG_UNCOND("\n[ED] MAC received downlink at " << Simulator::Now().As(Time::S));
-    NS_LOG_UNCOND("  Packet size: " << packet->GetSize() << " bytes");
-
-    Ptr<Packet> copy = packet->Copy();
-    LoraTag tag;
-    if (copy->RemovePacketTag(tag))
+    if (sf >= SF_MIN && sf <= SF_MAX)
     {
-        NS_LOG_UNCOND("  RX Power : " << tag.GetReceivePower() << " dBm");
-        NS_LOG_UNCOND("  Frequency: " << tag.GetFrequency() << " Hz");
-        NS_LOG_UNCOND("  SF       : " << (int)tag.GetSpreadingFactor());
+        return SNR_TARGET_PER_SF[sf - SF_MIN];
     }
+    return SNR_TARGET_PER_SF[0];
 }
 
-void
-OnEndDevicePhyReceive(Ptr<const Packet> packet, uint32_t nodeId)
+inline uint8_t
+SfToDataRate(uint8_t sf)
+{
+    return (sf >= 7 && sf <= 12) ? (12 - sf) : 0;
+}
+
+inline uint8_t
+DataRateToSf(uint8_t dr)
+{
+    return (dr <= 5) ? (12 - dr) : 7;
+}
+
+struct PidState
+{
+    double ePrev = 0.0;         // previous error (for D term)
+    uint8_t sf = SF_INITIAL;    // current spreading factor
+    double txPower = P_INITIAL; // current TX power (dBm)
+    uint32_t stableCount = 0;   // consecutive packets with margin > threshold
+};
+
+static std::map<uint32_t, PidState> g_pidState; // keyed by device address
+static NodeContainer g_endDevices;
+static NetDeviceContainer g_edNetDevices;
+
+static int
+FindDeviceIndex(uint32_t addr)
+{
+    for (uint32_t i = 0; i < g_edNetDevices.GetN(); i++)
+    {
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(g_edNetDevices.Get(i));
+        Ptr<EndDeviceLorawanMac> mac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
+        if (mac->GetDeviceAddress().Get() == addr)
+        {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void
+ApplyControlToDevice(int idx, double newTxPower, uint8_t newSf)
+{
+    Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(g_edNetDevices.Get(idx));
+    Ptr<EndDeviceLorawanMac> mac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
+    mac->SetTransmissionPowerDbm(newTxPower);
+    mac->SetDataRate(SfToDataRate(newSf));
+}
+
+static void
+OnGatewayUplinkReceived(Ptr<const Packet> packet)
 {
     Ptr<Packet> copy = packet->Copy();
+
     LoraTag tag;
     copy->RemovePacketTag(tag);
+    double rxPower = tag.GetReceivePower();
+    double snrMeasured = ComputeSnr(rxPower);
+    uint8_t sf = tag.GetSpreadingFactor();
+    uint32_t freq = tag.GetFrequency();
 
-    NS_LOG_UNCOND("\n[ED] PHY received packet on Node " << nodeId << " at "
-                                                        << Simulator::Now().As(Time::S));
-    NS_LOG_UNCOND("  RX Power : " << tag.GetReceivePower() << " dBm");
-    NS_LOG_UNCOND("  Frequency: " << tag.GetFrequency() << " Hz");
-    NS_LOG_UNCOND("  SF       : " << (int)tag.GetSpreadingFactor());
-    NS_LOG_UNCOND("  Size     : " << packet->GetSize() << " bytes");
+    LorawanMacHeader macHdr;
+    copy->RemoveHeader(macHdr);
+    LoraFrameHeader frameHdr;
+    frameHdr.SetAsUplink();
+    copy->RemoveHeader(frameHdr);
+    uint32_t devAddr = frameHdr.GetAddress().Get();
+
+    int idx = FindDeviceIndex(devAddr);
+    if (idx < 0)
+    {
+        NS_LOG_WARN("[PID] Unknown device address " << devAddr);
+        return;
+    }
+
+    PidState& s = g_pidState[devAddr];
+
+    // Remember what the device used for this packet
+    double txPowerUsed = s.txPower;
+    uint8_t sfUsed = s.sf;
+
+    double target = SnrTarget(s.sf);
+    double error = target - snrMeasured;
+
+    double dTerm = KD * (error - s.ePrev);
+    s.ePrev = error;
+
+    double deltaP = KP * error + dTerm;
+
+    // Round to nearest 2 dB step
+    deltaP = std::round(deltaP / 2.0) * 2.0;
+    s.txPower = std::clamp(s.txPower + deltaP, P_MIN, P_MAX);
+
+    double margin = snrMeasured - target;
+
+    double snrAtMaxPower = snrMeasured + (P_MAX - txPowerUsed);
+    bool linkStressed = (snrMeasured < target) || (snrAtMaxPower - target < COMFORT_MARGIN);
+
+    if (linkStressed && s.sf < SF_MAX)
+    {
+        s.sf++;
+        s.txPower = P_MAX; 
+        s.stableCount = 0;
+        s.ePrev = 0.0;
+        NS_LOG_UNCOND("[PID] Node " << idx << ": SF increased → " << (int)s.sf
+                                    << "  (SNR@Pmax=" << snrAtMaxPower << " dB)");
+    }
+    else if (margin > MARGIN_THRESHOLD && s.txPower <= P_MIN)
+    {
+        s.stableCount++;
+        if (s.stableCount >= STABILITY_WINDOW && s.sf > SF_MIN)
+        {
+            s.sf--;
+            s.txPower = P_MAX;
+            s.stableCount = 0;
+            s.ePrev = 0.0;
+            NS_LOG_UNCOND("[PID] Node " << idx << ": SF decreased → " << (int)s.sf);
+        }
+        else if (s.sf == SF_MIN)
+        {
+            s.stableCount = STABILITY_WINDOW;
+        }
+    }
+    else
+    {
+        s.stableCount = 0;
+    }
+
+    ApplyControlToDevice(idx, s.txPower, s.sf);
+
+    NS_LOG_UNCOND("\n[GW] Uplink at " << Simulator::Now().As(Time::S) << " from Node " << idx);
+    NS_LOG_UNCOND("  RX Power  : " << rxPower << " dBm  (device TX'd at " << txPowerUsed
+                                   << " dBm)");
+    NS_LOG_UNCOND("  SNR       : " << snrMeasured << " dB  (target: " << target << " dB)");
+    NS_LOG_UNCOND("  SF        : " << (int)sfUsed << " → " << (int)s.sf
+                                   << "  DR=" << (int)SfToDataRate(s.sf));
+    NS_LOG_UNCOND("  TX Power  : " << txPowerUsed << " → " << s.txPower << " dBm  (ΔP = " << deltaP
+                                   << ")");
+    NS_LOG_UNCOND("  Frequency : " << freq << " Hz");
+    NS_LOG_UNCOND("  Margin    : " << margin << " dB  (stable: " << s.stableCount << "/"
+                                   << STABILITY_WINDOW << ")");
 }
 
-void
-OnLostWrongFrequency(Ptr<const Packet>, uint32_t nodeId)
+static void
+OnEndDeviceMacReceive(Ptr<const Packet> packet)
 {
-    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": wrong frequency");
+    NS_LOG_UNCOND("[ED] MAC downlink at " << Simulator::Now().As(Time::S)
+                                          << "  size=" << packet->GetSize());
 }
 
-void
+static void
 OnLostWrongSf(Ptr<const Packet>, uint32_t nodeId)
 {
-    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": wrong spreading factor");
+    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": wrong SF");
 }
 
-void
+static void
 OnLostUnderSensitivity(Ptr<const Packet>, uint32_t nodeId)
 {
     NS_LOG_UNCOND("[LOST] Node " << nodeId << ": under sensitivity");
 }
 
-void
-OnLostInterference(Ptr<const Packet>, uint32_t nodeId)
-{
-    NS_LOG_UNCOND("[LOST] Node " << nodeId << ": interference");
-}
-
-void
-OnNetworkServerReceive(Ptr<const Packet> packet)
-{
-    NS_LOG_UNCOND("\n[NS] Network server received packet at "
-                  << Simulator::Now().As(Time::S) << ", size: " << packet->GetSize() << " bytes");
-}
-
-void
-PrintDevicePositions(NodeContainer devices, std::string deviceType)
+static void
+PrintDevicePositions(NodeContainer devices, const std::string& deviceType)
 {
     NS_LOG_UNCOND("\n=== " << deviceType << " Positions ===");
     for (uint32_t i = 0; i < devices.GetN(); i++)
@@ -127,17 +252,24 @@ PrintDevicePositions(NodeContainer devices, std::string deviceType)
         Ptr<Node> node = devices.Get(i);
         Ptr<MobilityModel> mob = node->GetObject<MobilityModel>();
         Vector pos = mob->GetPosition();
-        double distance = sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+        double distance = std::sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
         NS_LOG_UNCOND("  " << deviceType << " " << i << " (Node " << node->GetId() << "): ("
-                           << pos.x << ", " << pos.y << ", " << pos.z
-                           << "), dist from origin: " << distance << " m");
+                           << pos.x << ", " << pos.y << ", " << pos.z << "), dist=" << distance
+                           << " m");
     }
 }
 
 int
 main(int argc, char* argv[])
 {
-    //  Propagation 
+    double simTime = 300.0;  
+    double sendPeriod = 30.0; 
+
+    CommandLine cmd;
+    cmd.AddValue("simTime", "Total simulation time (s)", simTime);
+    cmd.AddValue("sendPeriod", "Uplink period (s)", sendPeriod);
+    cmd.Parse(argc, argv);
+
     Ptr<LogDistancePropagationLossModel> loss = CreateObject<LogDistancePropagationLossModel>();
     loss->SetPathLossExponent(PATH_LOSS_EXPONENT);
     loss->SetReference(REFERENCE_DISTANCE, REFERENCE_LOSS);
@@ -145,48 +277,41 @@ main(int argc, char* argv[])
     Ptr<PropagationDelayModel> delay = CreateObject<ConstantSpeedPropagationDelayModel>();
     Ptr<LoraChannel> channel = CreateObject<LoraChannel>(loss, delay);
 
-    //  Mobility 
     MobilityHelper mobility;
     Ptr<ListPositionAllocator> allocator = CreateObject<ListPositionAllocator>();
-    allocator->Add(Vector(0, 0, 0));      // End Device 0
-    allocator->Add(Vector(1000, 0, 0));   // End Device 1: 1 km east
-    allocator->Add(Vector(500, 866, 0));  // End Device 2: ~1 km NE
-    allocator->Add(Vector(-750, 750, 0)); // Gateway:      ~1.06 km NW
+    allocator->Add(Vector(0, 0, 0));       // ED 0: at origin (close)
+    allocator->Add(Vector(5000, 0, 0));    // ED 1: 5 km east (far)
+    allocator->Add(Vector(3000, 2000, 0)); // ED 2: ~3.6 km NE (medium)
+    allocator->Add(Vector(0, 500, 0));     // Gateway: 500 m north
     mobility.SetPositionAllocator(allocator);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
 
-    // Helpers
     LoraPhyHelper phyHelper;
     phyHelper.SetChannel(channel);
     LorawanMacHelper macHelper;
     LoraHelper helper;
 
-    //  Address generator 
     uint8_t nwkId = 54;
     uint32_t nwkAddr = 1864;
     Ptr<LoraDeviceAddressGenerator> addrGen =
         CreateObject<LoraDeviceAddressGenerator>(nwkId, nwkAddr);
 
-    //  End Devices 
-    NodeContainer endDevices;
-    endDevices.Create(3);
-    mobility.Install(endDevices);
+    g_endDevices.Create(3);
+    mobility.Install(g_endDevices);
 
     phyHelper.SetDeviceType(LoraPhyHelper::ED);
     macHelper.SetDeviceType(LorawanMacHelper::ED_A);
     macHelper.SetAddressGenerator(addrGen);
     macHelper.SetRegion(LorawanMacHelper::EU);
-    NetDeviceContainer edNetDevices = helper.Install(phyHelper, macHelper, endDevices);
+    g_edNetDevices = helper.Install(phyHelper, macHelper, g_endDevices);
 
-    // Set end devices to use CONFIRMED uplinks so the network server sends ACK downlinks
-    for (uint32_t i = 0; i < endDevices.GetN(); i++)
+    for (uint32_t i = 0; i < g_endDevices.GetN(); i++)
     {
-        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(edNetDevices.Get(i));
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(g_edNetDevices.Get(i));
         Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
         edMac->SetMType(LorawanMacHeader::CONFIRMED_DATA_UP);
     }
 
-    //  Gateway 
     NodeContainer gateways;
     gateways.Create(1);
     mobility.Install(gateways);
@@ -195,10 +320,9 @@ main(int argc, char* argv[])
     macHelper.SetDeviceType(LorawanMacHelper::GW);
     NetDeviceContainer gwNetDevices = helper.Install(phyHelper, macHelper, gateways);
 
-    //  Spreading factor assignment 
-    LorawanMacHelper::SetSpreadingFactorsUp(endDevices, gateways, channel);
+    LorawanMacHelper::SetSpreadingFactorsUp(g_endDevices, gateways, channel);
 
-    //  Network Server + P2P backhaul 
+    // --- Network Server + P2P backhaul --- whatever this is bruh
     Ptr<Node> networkServer = CreateObject<Node>();
 
     PointToPointHelper p2p;
@@ -215,61 +339,76 @@ main(int argc, char* argv[])
 
     NetworkServerHelper nsHelper;
     nsHelper.SetGatewaysP2P(gwRegistration);
-    nsHelper.SetEndDevices(endDevices);
+    nsHelper.SetEndDevices(g_endDevices);
     nsHelper.Install(networkServer);
 
-    //  Forwarder on gateway (bridges LoRa <-> P2P) 
     ForwarderHelper forwarderHelper;
     forwarderHelper.Install(gateways);
 
-    // Gateway MAC: log uplinks
     for (uint32_t i = 0; i < gateways.GetN(); i++)
     {
         Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(gateways.Get(i)->GetDevice(0));
         Ptr<GatewayLorawanMac> gwMac = DynamicCast<GatewayLorawanMac>(lnd->GetMac());
-        gwMac->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnGatewayMacReceive));
+        gwMac->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnGatewayUplinkReceived));
     }
 
-    // End device MAC + PHY: log downlinks and loss reasons
-    for (uint32_t i = 0; i < endDevices.GetN(); i++)
+    // ED MAC + PHY loss callbacks
+    for (uint32_t i = 0; i < g_endDevices.GetN(); i++)
     {
-        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(edNetDevices.Get(i));
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(g_edNetDevices.Get(i));
         Ptr<EndDeviceLorawanMac> edMac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
         Ptr<EndDeviceLoraPhy> edPhy = DynamicCast<EndDeviceLoraPhy>(lnd->GetPhy());
 
         edMac->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnEndDeviceMacReceive));
-        edPhy->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnEndDevicePhyReceive));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongFrequency",
-                                          MakeCallback(&OnLostWrongFrequency));
         edPhy->TraceConnectWithoutContext("LostPacketBecauseWrongSpreadingFactor",
                                           MakeCallback(&OnLostWrongSf));
         edPhy->TraceConnectWithoutContext("LostPacketBecauseUnderSensitivity",
                                           MakeCallback(&OnLostUnderSensitivity));
-        edPhy->TraceConnectWithoutContext("LostPacketBecauseInterference",
-                                          MakeCallback(&OnLostInterference));
     }
 
-    // Network server: log when it receives uplinks
-    Ptr<NetworkServer> nsApp = DynamicCast<NetworkServer>(networkServer->GetApplication(0));
-    nsApp->TraceConnectWithoutContext("ReceivedPacket", MakeCallback(&OnNetworkServerReceive));
-
     PeriodicSenderHelper senderHelper;
-    senderHelper.SetPeriod(Seconds(10));
+    senderHelper.SetPeriod(Seconds(sendPeriod));
     senderHelper.SetPacketSize(10);
-    ApplicationContainer apps = senderHelper.Install(endDevices);
+    ApplicationContainer apps = senderHelper.Install(g_endDevices);
     for (uint32_t i = 0; i < apps.GetN(); i++)
     {
         apps.Get(i)->SetStartTime(Seconds(2 + i * 5));
     }
 
-    PrintDevicePositions(gateways, "Gateway");
-    PrintDevicePositions(endDevices, "End Device");
+    NS_LOG_UNCOND("\n=== Initial Device State ===");
+    for (uint32_t i = 0; i < g_edNetDevices.GetN(); i++)
+    {
+        Ptr<LoraNetDevice> lnd = DynamicCast<LoraNetDevice>(g_edNetDevices.Get(i));
+        Ptr<EndDeviceLorawanMac> mac = DynamicCast<EndDeviceLorawanMac>(lnd->GetMac());
+        uint32_t addr = mac->GetDeviceAddress().Get();
+        uint8_t dr = mac->GetDataRate();
+        uint8_t sf = DataRateToSf(dr);
 
-    Simulator::Stop(Seconds(100));
-    NS_LOG_UNCOND("\nRunning simulation...\n");
+        PidState s;
+        s.sf = sf;
+        s.txPower = P_INITIAL;
+        g_pidState[addr] = s;
+
+        NS_LOG_UNCOND("  ED " << i << " addr=0x" << std::hex << addr << std::dec << " SF="
+                              << (int)sf << " DR=" << (int)dr << " TxPow=" << P_INITIAL << " dBm");
+    }
+
+    PrintDevicePositions(gateways, "Gateway");
+    PrintDevicePositions(g_endDevices, "End Device");
+
+    Simulator::Stop(Seconds(simTime));
+    NS_LOG_UNCOND("\nRunning simulation for " << simTime << " s  (send period=" << sendPeriod
+                                              << " s) ...\n");
     Simulator::Run();
     Simulator::Destroy();
 
+    NS_LOG_UNCOND("\n=== Final PID State ===");
+    for (auto& [addr, s] : g_pidState)
+    {
+        int idx = FindDeviceIndex(addr);
+        NS_LOG_UNCOND("  ED " << idx << " addr=0x" << std::hex << addr << std::dec
+                              << "  SF=" << (int)s.sf << "  TxPow=" << s.txPower << " dBm");
+    }
     NS_LOG_UNCOND("\nSimulation finished!");
     return 0;
 }
