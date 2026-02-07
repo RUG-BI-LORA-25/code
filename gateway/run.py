@@ -38,7 +38,7 @@ def main():
     print("  HackRF LoRa Gateway")
     print("=" * 60)
     print(f"  Frequency: {CENTER_FREQ/1e6:.3f} MHz")
-    print(f"  SF: {SPREADING_FACTOR}")
+    print(f"  RX SF: 7-12 (multi-SF)")
     print(f"  Bandwidth: {BANDWIDTH/1000} kHz")
     print(f"  Gateway EUI: {GATEWAY_EUI.hex()}")
     print("=" * 60)
@@ -72,14 +72,14 @@ def main():
     forwarder.set_transmitter(transmitter)
     forwarder.set_receiver(start_receiver_again, stop_receiver)
 
-    def on_packet(data, crc_ok):
+    def on_packet(data, crc_ok, sf=12):
         packet_count[0] += 1
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        print(f"\n[{ts}] RX: {len(data)} bytes")
+        print(f"\n[{ts}] RX: {len(data)} bytes (SF{sf})")
 
         # TODO: rssi snr retrieving
         forwarder.send_push_data([{
-            'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0
+            'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0, 'sf': sf
         }])
 
     print("\nStarting gateway... Press Ctrl+C to stop\n")

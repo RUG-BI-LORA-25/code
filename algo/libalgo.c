@@ -8,7 +8,10 @@ typedef struct {
 } State;
 
 State pid(State *current) {
-    current->dr = 5;
+    static int counter = 0;
+    printf("PID called. Counter: %d\n", counter);
+    current->dr = counter++;
+    counter = counter % 6; 
     // Placeholder
     printf("Current State: DR %d, BW %.2f, PWR %d\n", current->dr, current->bw, current->pwr);
     return *current;

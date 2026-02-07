@@ -96,12 +96,21 @@ class PacketForwarder:
             else:
                 print(f"  [DL] RX stop took {stop_took:.2f}s (ate into TX window by {-remaining:.2f}s)")
 
+            # Parse SF from datr field (e.g. "SF9BW125" -> 9)
+            tx_sf = None
+            datr = txpk.get('datr', '')
+            if datr.startswith('SF') and 'BW' in datr:
+                try:
+                    tx_sf = int(datr[2:datr.index('BW')])
+                except ValueError:
+                    pass
+
             error = ""
             if self.transmitter:
                 try:
                     print(data.hex())
-                    self.transmitter.send(data)
-                    print(f"  [DL] Transmitted {len(data)} bytes")
+                    self.transmitter.send(data, sf=tx_sf)
+                    print(f"  [DL] Transmitted {len(data)} bytes (SF{tx_sf})")
                 except Exception as e:
                     error = str(e)
                     print(f"  [DL] TX error: {e}")
@@ -150,7 +159,7 @@ class PacketForwarder:
                 "rfch": 0,
                 "stat": 1 if p.get('crc_ok', True) else -1,
                 "modu": "LORA",
-                "datr": f"SF{SPREADING_FACTOR}BW{BANDWIDTH // 1000}",
+                "datr": f"SF{p.get('sf', SPREADING_FACTOR)}BW{BANDWIDTH // 1000}",
                 "codr": f"4/{4 + CODING_RATE}",
                 "rssi": p.get('rssi', -60),
                 "lsnr": p.get('snr', 10.0),
