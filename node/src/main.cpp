@@ -23,7 +23,7 @@ int main(void) {
     
 
     Sensor *sensors[] = {
-        new BME280(BME280_I2C_ADDR, &I2CBus),
+        // new BME280(BME280_I2C_ADDR, &I2CBus),
         new Photoresistor(PHOTORESISTOR_PIN)
     };
 

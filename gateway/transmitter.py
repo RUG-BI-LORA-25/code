@@ -8,27 +8,59 @@ from config import (CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE,
                     SYNC_WORD, HAS_CRC, IMPLICIT_HEADER, SAMP_RATE,
                     RF_GAIN, IF_GAIN, BB_GAIN)
 
-class Transmitter(gr.top_block):
+class Transmitter:
+    """Wrapper that creates a fresh GnuRadio flowgraph per TX burst."""
+
+    def send(self, data):
+        tb = _TxFlowgraph()
+
+        # The whitening block with is_hex=True parses every 2 chars as a hex
+        # byte (e.g. "60f306fa01..."), so pass a contiguous hex string.
+        hex_str = data.hex()
+        
+        msg = pmt.intern(hex_str)
+        
+        tb.whitening.to_basic_block()._post(pmt.intern("msg"), msg)
+
+        tb.start()
+        
+        symbol_time = (2 ** SPREADING_FACTOR) / BANDWIDTH
+        n_payload_symbols = max(8, int(np.ceil(
+            (8 * len(data) + 28 - 4 * SPREADING_FACTOR) /
+            (4 * SPREADING_FACTOR)
+        )) * (CODING_RATE + 4))
+        # Account for preamble + payload + inter_frame_padding flush time
+        padding_time = 20 * (2**SPREADING_FACTOR) / BANDWIDTH  # matches modulate's padding
+        tx_time = (8 + 4.25 + n_payload_symbols) * symbol_time + padding_time + 0.5
+        
+        print(f"    TX: {len(data)} bytes, ~{tx_time:.1f}s airtime")
+        time.sleep(tx_time)
+        tb.stop()
+        tb.wait()
+
+
+class _TxFlowgraph(gr.top_block):
     def __init__(self):
         gr.top_block.__init__(self, "HackRF LoRa Transmitter")
-        self._built = False
 
-    def _build_graph(self):
-        """Build the GnuRadio flowgraph on first use (lazy init)."""
-        if self._built:
-            return
-        # is_hex=True: we pass hex string, block decodes to bytes
+        # Config: is_hex=True, has_crc=False, delimiter=',', len_tag_name='frame_len'
+        # We must keep is_hex=True so it accepts the string we generate above.
         self.whitening = lora_sdr.whitening(True, False, ',', 'frame_len')
-        self.header = lora_sdr.header(False, False, CODING_RATE)  # explicit header, NO CRC for downlinks
-        self.add_crc = lora_sdr.add_crc(False)                    # NO CRC for downlinks
+        
+        self.header = lora_sdr.header(False, False, CODING_RATE)
+        self.add_crc = lora_sdr.add_crc(False)
         self.hamming_enc = lora_sdr.hamming_enc(CODING_RATE, SPREADING_FACTOR)
-        self.interleaver = lora_sdr.interleaver(CODING_RATE, SPREADING_FACTOR, 0, BANDWIDTH)
+        self.interleaver = lora_sdr.interleaver(CODING_RATE, SPREADING_FACTOR, 2, BANDWIDTH)  # ldro=2 (AUTO)
         self.gray_decode = lora_sdr.gray_demap(SPREADING_FACTOR)
-        self.modulate = lora_sdr.modulate(SPREADING_FACTOR, SAMP_RATE, BANDWIDTH, [SYNC_WORD], 0, 8)
+        self.modulate = lora_sdr.modulate(SPREADING_FACTOR, SAMP_RATE, BANDWIDTH, [SYNC_WORD],
+                                          int(20 * 2**SPREADING_FACTOR * SAMP_RATE / BANDWIDTH), 8)
+        self.modulate.set_min_output_buffer(10_000_000)
 
-        # Multiply by -1j to invert IQ (swap I and Q)
-        # This is equivalent to conjugating the complex signal
-        self.iq_invert = blocks.multiply_const_cc(-1j)
+        # Conjugate the signal to invert IQ (Standard for LoRaWAN Downlinks)
+        # NOTE: IQ inversion = conjugation, NOT multiplication by -j.
+        # conj(I+jQ) = I-jQ  (flips upchirps↔downchirps correctly)
+        # (-j)*(I+jQ) = Q-jI  (wrong — rotates 90° instead of inverting)
+        self.iq_invert = blocks.conjugate_cc()
 
         self.osmosdr_sink = osmosdr.sink(args="hackrf=0")
         self.osmosdr_sink.set_sample_rate(SAMP_RATE)
@@ -43,23 +75,5 @@ class Transmitter(gr.top_block):
         self.connect((self.hamming_enc, 0), (self.interleaver, 0))
         self.connect((self.interleaver, 0), (self.gray_decode, 0))
         self.connect((self.gray_decode, 0), (self.modulate, 0))
-        self.connect((self.modulate, 0), (self.iq_invert, 0))   # invert IQ
+        self.connect((self.modulate, 0), (self.iq_invert, 0))
         self.connect((self.iq_invert, 0), (self.osmosdr_sink, 0))
-        self._built = True
-
-    def send(self, data):
-        hex_str = data.hex()
-        msg = pmt.intern(hex_str)
-        self.whitening.to_basic_block()._post(pmt.intern("msg"), msg)
-
-        self.start()
-        symbol_time = (2 ** SPREADING_FACTOR) / BANDWIDTH
-        n_payload_symbols = max(8, int(np.ceil(
-            (8 * len(data) + 28 - 4 * SPREADING_FACTOR) /
-            (4 * SPREADING_FACTOR)
-        )) * (CODING_RATE + 4))
-        tx_time = (8 + 4.25 + n_payload_symbols) * symbol_time + 0.5
-        print(f"    TX: {len(data)} bytes, ~{tx_time:.1f}s airtime")
-        time.sleep(tx_time)
-        self.stop()
-        self.wait()

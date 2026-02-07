@@ -99,6 +99,7 @@ class PacketForwarder:
             error = ""
             if self.transmitter:
                 try:
+                    print(data.hex())
                     self.transmitter.send(data)
                     print(f"  [DL] Transmitted {len(data)} bytes")
                 except Exception as e:

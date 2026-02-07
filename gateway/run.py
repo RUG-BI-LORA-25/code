@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import time
-import struct
 import threading
 from datetime import datetime
 from config import (CENTER_FREQ, SPREADING_FACTOR, BANDWIDTH,
