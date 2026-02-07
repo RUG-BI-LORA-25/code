@@ -113,7 +113,7 @@ int16_t LORA::sendData(const uint8_t* data, size_t len, uint8_t* dlBuf, size_t* 
     Serial.print("[LORA] Sending ");
     Serial.print(len);
     Serial.println(" bytes...");
-    
+
     if (dlBuf && dlLen) {
         return node.sendReceive(data, len, 1, dlBuf, dlLen);
     }

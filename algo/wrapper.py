@@ -20,9 +20,9 @@ lib = ctypes.CDLL("./libalgo.so")
 class State(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
-        ("sf", ctypes.c_uint8),
+        ("sf", ctypes.c_int),
         ("bw", ctypes.c_float),
-        ("pwr", ctypes.c_int8),
+        ("pwr", ctypes.c_int),
     ]
 
 

@@ -2,14 +2,14 @@
 import time
 import struct
 import threading
+import queue
 from datetime import datetime
 from config import (CENTER_FREQ, SPREADING_FACTOR, BANDWIDTH,
                     CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
 from receiver import Receiver
 from forwarder import PacketForwarder
 from transmitter import Transmitter
-# we assume u have hackrf_transfer
-# sike, we check for it
+
 if not __import__('shutil').which('hackrf_transfer'):
     print("Please install hackrf tools (hackrf_transfer)")
     exit(1)
@@ -21,34 +21,17 @@ def cartof():
          █   ▐▌  ▀▄▄▄▀ ▐▛▀▘ 
              ▐▌        ▐▌   
              ▐▌             
-                            
-                            
     """)
-
-    # transmit
-    import subprocess
-    # cjheck for cartof.hackrf file
-    import os
+    import subprocess, os
     cartof_file = os.path.join(os.path.dirname(__file__), 'cartof.iqhackrf')
     if os.path.isfile(cartof_file):
         print("Starting cartof transmission...")
         subprocess.run([
-            'hackrf_transfer',
-            '-t', cartof_file,
-            '-f', str(int(CENTER_FREQ)),
-            '-s', '2000000',
-            '-x', '20',
-            '-a', '1'
+            'hackrf_transfer', '-t', cartof_file,
+            '-f', str(int(CENTER_FREQ)), '-s', '2000000', '-x', '20', '-a', '1'
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         print("cartof.iqhackrf file not found, skipping transmission.")
-
-def print_packet_info(data, crc_ok, count):
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    
-    print(f"\n[{timestamp}]")
-    print(f" {len(data)} bytes")
-    
 
 
 def main():
@@ -61,65 +44,81 @@ def main():
     print(f"  Bandwidth: {BANDWIDTH/1000} kHz")
     print(f"  Gateway EUI: {GATEWAY_EUI.hex()}")
     print("=" * 60)
-    
+
     forwarder = PacketForwarder(CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
     transmitter = Transmitter()
-    forwarder.set_transmitter(transmitter)
+
+    dl_queue = queue.Queue()
+
+    forwarder.set_transmitter(type('TX', (), {
+        'send': lambda self, data: dl_queue.put(data)
+    })())
+
     packet_count = [0]
-    receiver = [None]  # mutable ref so we can stop/restart
-    
+    radio_lock = threading.Lock()
+    receiver_ref = [None]
+
+    def start_receiver(on_pkt):
+        rx = Receiver(on_pkt)
+        rx.start()
+        return rx
+
+    def transmit_now(data):
+        with radio_lock:
+            if receiver_ref[0]:
+                receiver_ref[0].stop()
+                receiver_ref[0].wait()
+                receiver_ref[0] = None
+
+            transmitter.send(data)
+
+            receiver_ref[0] = start_receiver(on_packet)
+
     def on_packet(data, crc_ok):
         packet_count[0] += 1
-        print_packet_info(data, crc_ok, packet_count[0])
-        forwarder.send_push_data([{'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0}])
-    
-    def start_receiver():
-        rx = Receiver(on_packet)
-        rx.start()
-        receiver[0] = rx
-        print("    [RX] Receiver started")
-    
-    def stop_receiver():
-        if receiver[0]:
-            print("    [RX] Stopping receiver for TX...")
-            receiver[0].stop()
-            receiver[0].wait()
-            receiver[0] = None
-    
-    forwarder.set_receiver(start_receiver, stop_receiver)
-    
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n[{ts}] RX: {len(data)} bytes")
+
+        # TODO: rssi snr retrieving
+        forwarder.send_push_data([{
+            'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0
+        }])
+
+        if not dl_queue.empty():
+            dl_data = dl_queue.get()
+            print(f"    Pending downlink: {dl_data.hex()} ({len(dl_data)} bytes)")
+            threading.Timer(4, transmit_now, args=[dl_data]).start()
+
     print("\nStarting gateway... Press Ctrl+C to stop\n")
-    
+
     forwarder.send_stat()
+    forwarder.send_keepalive()
     forwarder.send_pull_data()
-    start_receiver()
-    
-    # Send PULL_DATA every 10s so ChirpStack knows we're alive.
-    # Send stats alongside.
+    receiver_ref[0] = start_receiver(on_packet)
+
     def keepalive_loop():
         while True:
-            time.sleep(10)
+            time.sleep(5)
             forwarder.send_stat()
+            forwarder.send_keepalive()
             forwarder.send_pull_data()
-    threading.Thread(target=keepalive_loop, daemon=True).start()
 
-    # Poll for downlinks frequently — ChirpStack sends PULL_RESP
-    # shortly after receiving our PUSH_DATA uplink.
     def downlink_loop():
         while True:
             forwarder.check_downlink()
-            time.sleep(0.1)
+
+    threading.Thread(target=keepalive_loop, daemon=True).start()
     threading.Thread(target=downlink_loop, daemon=True).start()
-    
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n\nStopping gateway...")
-    
-    if receiver[0]:
-        receiver[0].stop()
-        receiver[0].wait()
+
+    if receiver_ref[0]:
+        receiver_ref[0].stop()
+        receiver_ref[0].wait()
     print(f"Total packets received: {packet_count[0]}")
 
 
