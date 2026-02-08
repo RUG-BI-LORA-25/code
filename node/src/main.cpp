@@ -1,8 +1,6 @@
 #include "main.h"
 #include "pins.h"
 #define LEN(x) (sizeof(x) / sizeof((x)[0]))
-#define UPLINK_INTERVAL_MS  30000UL   // 30 seconds between uplinks
-#define TDMA_SLOT_OFFSET_MS 0UL       // this node's slot offset within the frame
 
 int main(void) {
     #ifndef SIMULATION_MODE

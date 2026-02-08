@@ -2,18 +2,10 @@
 #define _RADIOLIB_EX_LORAWAN_CONFIG_H
 
 #include <RadioLib.h>
-const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds (unused, kept for reference)
+#include "identity.h"
+// Join EUI (shared across all nodes in this application)
 #define RADIOLIB_LORAWAN_JOIN_EUI  0x156962cc56e08ec0
 
-#ifndef RADIOLIB_LORAWAN_DEV_EUI   // Replace with your Device EUI
-#define RADIOLIB_LORAWAN_DEV_EUI   0x975c335979fc518c
-#endif
-#ifndef RADIOLIB_LORAWAN_APP_KEY   // Replace with your App Key 
-#define RADIOLIB_LORAWAN_APP_KEY  0xa0, 0x54, 0x7e, 0x61, 0xf1, 0x55, 0x86, 0xda, 0x03, 0x60, 0x0b, 0x44, 0x18, 0x0b, 0x69, 0xec
-#endif
-#ifndef RADIOLIB_LORAWAN_NWK_KEY   // Put your Nwk Key here
-#define RADIOLIB_LORAWAN_NWK_KEY   0xb6, 0x75, 0x5b, 0xab, 0xbf, 0x34, 0x9c, 0xa2, 0x37, 0x7e, 0x4e, 0x6f, 0xe2, 0x25, 0x29, 0x69 
-#endif
 
 // Custom single-channel EU433 band for HackRF gateway
 // Based on EU433 but all 3 TX channels + RX2 pinned to 433.175 MHz

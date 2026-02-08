@@ -1,5 +1,7 @@
 #pragma once
 
+#include "identity.h"
+
 // Core Includes
 #ifdef SIMULATION_MODE
 #include "mocks/Arduino.h"
