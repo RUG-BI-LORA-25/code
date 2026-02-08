@@ -1,7 +1,7 @@
 .PHONY: run clean
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -fPIC -shared
+CFLAGS = -Wall -Wextra -O2 -fPIC -shared -lm
 
 run: libalgo.so
 	. ./.envrc && . ./.env/bin/activate && python3 wrapper.py
