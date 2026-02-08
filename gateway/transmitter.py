@@ -9,43 +9,59 @@ from config import (CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE,
                     RF_GAIN, IF_GAIN, BB_GAIN)
 
 class Transmitter:
-    """Wrapper that creates a fresh GnuRadio flowgraph per TX burst."""
+    """Wrapper around GnuRadio LoRa TX flowgraph.
+    """
 
-    def send(self, data, sf=None):
+    def __init__(self):
+        self._tb = None
+        self._sf = None
+
+    def prepare(self, sf=None):
+        """Pre-create the TX flowgraph and open the HackRF sink."""
         sf = sf or SPREADING_FACTOR
-        tb = _TxFlowgraph(sf)
+        self._sf = sf
+        self._tb = _TxFlowgraph(sf)
+        self._tb.start()
 
-        # The whitening block with is_hex=True parses every 2 chars as a hex
-        # byte (e.g. "60f306fa01..."), so pass a contiguous hex string.
+    def transmit(self, data):
+        """Post data to an already-running flowgraph and wait for airtime"""
+        if self._tb is None:
+            raise RuntimeError("transmit() called without prepare()")
+        sf = self._sf
         hex_str = data.hex()
-        
         msg = pmt.intern(hex_str)
-        
-        tb.whitening.to_basic_block()._post(pmt.intern("msg"), msg)
+        self._tb.whitening.to_basic_block()._post(pmt.intern("msg"), msg)
 
-        tb.start()
-        
-        symbol_time = (2 ** sf) / BANDWIDTH
-        n_payload_symbols = max(8, int(np.ceil(
-            (8 * len(data) + 28 - 4 * sf) /
-            (4 * sf)
-        )) * (CODING_RATE + 4))
-        # Account for preamble + payload + inter_frame_padding flush time
-        padding_time = 20 * (2**sf) / BANDWIDTH  # matches modulate's padding
-        tx_time = (8 + 4.25 + n_payload_symbols) * symbol_time + padding_time + 0.5
-        
+        tx_time = self._airtime(len(data), sf)
         print(f"    TX: {len(data)} bytes, SF{sf}, ~{tx_time:.1f}s airtime")
         time.sleep(tx_time)
-        tb.stop()
-        tb.wait()
+        self._tb.stop()
+        self._tb.wait()
+        self._tb = None
+
+    def send(self, data, sf=None):
+        """Legacy one-shot send (prepare + transmit in one call)."""
+        sf = sf or SPREADING_FACTOR
+        self.prepare(sf)
+        time.sleep(0.05)
+        self.transmit(data)
+
+    @staticmethod
+    def _airtime(n_bytes, sf):
+        symbol_time = (2 ** sf) / BANDWIDTH
+        n_payload_symbols = max(8, int(np.ceil(
+            (8 * n_bytes + 28 - 4 * sf) /
+            (4 * sf)
+        )) * (CODING_RATE + 4))
+        padding_time = 20 * (2**sf) / BANDWIDTH
+        return (8 + 4.25 + n_payload_symbols) * symbol_time + padding_time + 0.5
 
 
 class _TxFlowgraph(gr.top_block):
     def __init__(self, sf):
         gr.top_block.__init__(self, "HackRF LoRa Transmitter")
 
-        # Config: is_hex=True, has_crc=False, delimiter=',', len_tag_name='frame_len'
-        # We must keep is_hex=True so it accepts the string we generate above.
+        
         self.whitening = lora_sdr.whitening(True, False, ',', 'frame_len')
         
         self.header = lora_sdr.header(False, False, CODING_RATE)
@@ -56,12 +72,6 @@ class _TxFlowgraph(gr.top_block):
         self.modulate = lora_sdr.modulate(sf, SAMP_RATE, BANDWIDTH, [SYNC_WORD],
                                           int(20 * 2**sf * SAMP_RATE / BANDWIDTH), 8)
         self.modulate.set_min_output_buffer(10_000_000)
-
-        # Conjugate the signal to invert IQ (Standard for LoRaWAN Downlinks)
-        # NOTE: IQ inversion = conjugation, NOT multiplication by -j.
-        # conj(I+jQ) = I-jQ  (flips upchirps↔downchirps correctly)
-        # (-j)*(I+jQ) = Q-jI  (wrong — rotates 90° instead of inverting)
-        self.iq_invert = blocks.conjugate_cc()
 
         self.osmosdr_sink = osmosdr.sink(args="hackrf=0")
         self.osmosdr_sink.set_sample_rate(SAMP_RATE)
@@ -76,5 +86,4 @@ class _TxFlowgraph(gr.top_block):
         self.connect((self.hamming_enc, 0), (self.interleaver, 0))
         self.connect((self.interleaver, 0), (self.gray_decode, 0))
         self.connect((self.gray_decode, 0), (self.modulate, 0))
-        self.connect((self.modulate, 0), (self.iq_invert, 0))
-        self.connect((self.iq_invert, 0), (self.osmosdr_sink, 0))
+        self.connect((self.modulate, 0), (self.osmosdr_sink, 0))

@@ -1,6 +1,9 @@
 #include "main.h"
 #include "pins.h"
 #define LEN(x) (sizeof(x) / sizeof((x)[0]))
+#define UPLINK_INTERVAL_MS  30000UL   // 30 seconds between uplinks
+#define TDMA_SLOT_OFFSET_MS 0UL       // this node's slot offset within the frame
+
 int main(void) {
     #ifndef SIMULATION_MODE
     init();
@@ -57,8 +60,15 @@ int main(void) {
     // LED pin
     pinMode(LED_PIN, OUTPUT);
 
+    // TDMA: initial slot offset so multiple nodes don't transmit simultaneously
+    if (TDMA_SLOT_OFFSET_MS > 0) {
+        Serial.print("[MAIN] TDMA slot offset: ");
+        Serial.print(TDMA_SLOT_OFFSET_MS);
+        Serial.println("ms");
+        delay(TDMA_SLOT_OFFSET_MS);
+    }
+
     for (;;) {
-        delay(5000);
         // Read sensors
         uint8_t buffer[10];
         uint8_t offset = 0;
@@ -108,5 +118,7 @@ int main(void) {
 
             lora.reBegin(params);
         }
+
+        delay(UPLINK_INTERVAL_MS);
     }
 }

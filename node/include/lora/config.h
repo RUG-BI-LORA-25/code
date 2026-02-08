@@ -2,8 +2,7 @@
 #define _RADIOLIB_EX_LORAWAN_CONFIG_H
 
 #include <RadioLib.h>
-
-const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds
+const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds (unused, kept for reference)
 #define RADIOLIB_LORAWAN_JOIN_EUI  0x156962cc56e08ec0
 
 #ifndef RADIOLIB_LORAWAN_DEV_EUI   // Replace with your Device EUI
@@ -16,10 +15,78 @@ const uint32_t uplinkIntervalSeconds = 5UL * 60UL;    // minutes x seconds
 #define RADIOLIB_LORAWAN_NWK_KEY   0xb6, 0x75, 0x5b, 0xab, 0xbf, 0x34, 0x9c, 0xa2, 0x37, 0x7e, 0x4e, 0x6f, 0xe2, 0x25, 0x29, 0x69 
 #endif
 
-// Use patched EU433 band from lib/RadioLibPatch
-// - Single channel at 433.175 MHz
-// - Correct dataRates (DR0=SF12, DR1=SF11, etc.)
-const LoRaWANBand_t& Region = EU433;
+// Custom single-channel EU433 band for HackRF gateway
+// Based on EU433 but all 3 TX channels + RX2 pinned to 433.175 MHz
+// so the node never hops away from the single HackRF frequency.
+const LoRaWANBand_t EU433_Single = {
+  .bandNum = BandEU433,
+  .bandType = RADIOLIB_LORAWAN_BAND_DYNAMIC,
+  .freqMin = 4330000,
+  .freqMax = 4340000,
+  .payloadLenMax = { 51, 51, 51, 115, 242, 242, 242, 242, 0, 0, 0, 0, 0, 0, 0 },
+  .powerMax = 12,
+  .powerNumSteps = 5,
+  .dutyCycle = 36000,
+  .dwellTimeUp = 0,
+  .dwellTimeDn = 0,
+  .txParamSupported = false,
+  .txFreqs = {
+    { .idx = 0, .freq = 4331750, .drMin = 0, .drMax = 5, .dr = 3 },
+    { .idx = 1, .freq = 4331750, .drMin = 0, .drMax = 5, .dr = 3 },
+    { .idx = 2, .freq = 4331750, .drMin = 0, .drMax = 5, .dr = 3 },
+  },
+  .numTxSpans = 0,
+  .txSpans = {
+    RADIOLIB_LORAWAN_CHANNEL_SPAN_NONE,
+    RADIOLIB_LORAWAN_CHANNEL_SPAN_NONE
+  },
+  .rx1Span = RADIOLIB_LORAWAN_CHANNEL_SPAN_NONE,
+  .rx1DrTable = {
+    {    0,    0,    0,    0,    0,    0, 0x0F, 0x0F },
+    {    1,    0,    0,    0,    0,    0, 0x0F, 0x0F },
+    {    2,    1,    0,    0,    0,    0, 0x0F, 0x0F },
+    {    3,    2,    1,    0,    0,    0, 0x0F, 0x0F },
+    {    4,    3,    2,    1,    0,    0, 0x0F, 0x0F },
+    {    5,    4,    3,    2,    1,    0, 0x0F, 0x0F },
+    {    6,    5,    4,    3,    2,    1, 0x0F, 0x0F },
+    {    7,    6,    5,    4,    3,    2, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F },
+    { 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F }
+  },
+  .rx2 = { .idx = 0, .freq = 4331750, .drMin = 0, .drMax = 7, .dr = 0 },
+  .txWoR = {
+    RADIOLIB_LORAWAN_CHANNEL_NONE,
+    RADIOLIB_LORAWAN_CHANNEL_NONE
+  },
+  .txAck = {
+    RADIOLIB_LORAWAN_CHANNEL_NONE,
+    RADIOLIB_LORAWAN_CHANNEL_NONE
+  },
+  .dataRates = {
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = {12, 125, 5}}, .pc = {.lora = {8, false, true, true}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = {11, 125, 5}}, .pc = {.lora = {8, false, true, true}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = {10, 125, 5}}, .pc = {.lora = {8, false, true, false}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = { 9, 125, 5}}, .pc = {.lora = {8, false, true, false}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = { 8, 125, 5}}, .pc = {.lora = {8, false, true, false}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = { 7, 125, 5}}, .pc = {.lora = {8, false, true, false}}},
+    { .modem = RADIOLIB_MODEM_LORA, .dr = {.lora = { 7, 250, 5}}, .pc = {.lora = {8, false, true, false}}},
+    { .modem = RADIOLIB_MODEM_FSK,  .dr = {.fsk  = {50, 25}},     .pc = {.fsk  = {40, 24, 2}}},
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE,
+    RADIOLIB_DATARATE_NONE
+  }
+};
+
+const LoRaWANBand_t& Region = EU433_Single;
 
 const uint8_t subBand = 0;
 

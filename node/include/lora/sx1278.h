@@ -16,6 +16,7 @@ class LORA{
     int16_t setPower(int8_t power);
     int16_t setGain(uint8_t gain);
     int16_t sendData(const uint8_t* data, size_t len, uint8_t* dlBuf = nullptr, size_t* dlLen = nullptr);
+    void applyOverrides();
     
    private:
     LoRaWANNode node;
@@ -24,4 +25,5 @@ class LORA{
     int pin_reset; 
     int pin_dio0;   
     int pin_dio1;
+    int targetDr = 0;  // DR requested by algo, used in applyOverrides()
 };

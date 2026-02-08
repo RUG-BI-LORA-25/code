@@ -77,19 +77,26 @@ async def flush_queue(device_client, dev_eui, auth):
     await device_client.FlushQueue(req, metadata=auth)
     logger.info("Flushed queue for %s", dev_eui)
 
+# DR (0-5) → SF (12-7) mapping
+DR_TO_SF = {0: 12, 1: 11, 2: 10, 3: 9, 4: 8, 5: 7}
+SF_TO_DR = {v: k for k, v in DR_TO_SF.items()}
+
+
 async def main() -> None:
     auth = _auth_metadata()
     channel = grpc.aio.insecure_channel(CHIRPSTACK_HOST)
     device_client = device_pb2_grpc.DeviceServiceStub(channel)
 
+    pending_dr: dict[str, int | None] = {eui: None for eui in DEV_EUIS}
+
     # Single wildcard topic covers all devices in the application.
     topic = f"application/{APPLICATION_ID}/device/+/event/up"
 
     async with aiomqtt.Client(MQTT_HOST, MQTT_PORT) as mqtt:
-        # flush qeueues for all devices at startup
+        # flush queues for all devices at startup
         for dev_eui in DEV_EUIS:
             await flush_queue(device_client, dev_eui, auth)
-            
+
         await mqtt.subscribe(topic)
         logger.info("Subscribed to %s", topic)
 
@@ -104,13 +111,33 @@ async def main() -> None:
                 lora = event["txInfo"]["modulation"]["lora"]
                 rssi: int = event["rxInfo"][0]["rssi"]
                 sf, bw = lora["spreadingFactor"], lora["bandwidth"]
+                uplink_dr = SF_TO_DR.get(sf)
 
-                logger.debug("Device %s — SF: %d, BW: %d, RSSI: %d", dev_eui, sf, bw, rssi)
+                logger.info("Device %s — SF%d (DR%s), BW: %d, RSSI: %d",
+                            dev_eui, sf, uplink_dr, bw, rssi)
+
+                if pending_dr[dev_eui] is not None:
+                    if uplink_dr == pending_dr[dev_eui]:
+                        logger.info("Device %s confirmed DR%d — ready for next PID",
+                                    dev_eui, pending_dr[dev_eui])
+                        pending_dr[dev_eui] = None
+                    else:
+                        wanted: int = pending_dr[dev_eui]  # type: ignore[assignment]
+                        logger.info("Device %s still at DR%s, re-sending DR%d",
+                                    dev_eui, uplink_dr, wanted)
+                        await flush_queue(device_client, dev_eui, auth)
+                        await send_downlink(device_client, dev_eui,
+                                           wanted, float(bw), rssi, auth)
+                        continue
 
                 state = State(sf=sf, bw=float(bw), pwr=rssi)
                 lib.pid(ctypes.byref(state))
 
-                await send_downlink(device_client, dev_eui, state.sf, state.bw, state.pwr, auth)
+                pending_dr[dev_eui] = state.sf
+                logger.info("PID output DR%d for %s", state.sf, dev_eui)
+
+                await send_downlink(device_client, dev_eui,
+                                    state.sf, state.bw, state.pwr, auth)
 
             except Exception:
                 logger.exception("Error processing message on %s", msg.topic)

@@ -46,11 +46,11 @@ int join(LoRaWANNode& node) {
 #endif
 
 void LORA::reBegin(State target) {
-    log("Reinitializing LoRa with new parameters...", "LORA", Serial);
-    
-    node.setDatarate(target.datarate);
-    node.setTxPower(target.power);
-    
+    Serial.print("[LORA] Algo requested DR change: ");
+    Serial.print(targetDr);
+    Serial.print(" -> ");
+    Serial.println(target.datarate);
+    targetDr = target.datarate;
 }
 
 void LORA::begin() {
@@ -76,7 +76,11 @@ void LORA::begin() {
 
     // Disable ADR - we control datarate manually
     node.setADR(false);
-    
+
+    // Apply single-channel overrides (frequency, RX delays, etc.)
+    applyOverrides();
+    Serial.println("[LORA] RX overrides applied");
+
     // Set datarate - DR0=SF12, DR3=SF9, etc.
     state = node.setDatarate(0);  // DR0 = SF12
     if (state != RADIOLIB_ERR_NONE) {
@@ -109,15 +113,66 @@ int16_t LORA::setGain(uint8_t gain) {
     return radio.setGain(gain);
 }
 
+void LORA::applyOverrides() {
+    // Force all dynamic channels to 433.175 MHz so the node never hops
+    // away from our single-channel HackRF, even if ChirpStack sends
+    // NewChannelReq / DlChannelReq MAC commands.
+    for (int i = 0; i < 3; i++) {
+        node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i].idx   = i;
+        node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i].freq  = 4331750;
+        node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i].drMin = 0;
+        node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i].drMax = 5;
+        node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i].dr    = this->targetDr;
+
+        node.dynamicChannels[RADIOLIB_LORAWAN_DOWNLINK][i] =
+            node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i];
+    }
+
+    // Force single-channel RX2 on 433.175 MHz, always DR0 (SF12) for RX2
+    node.channels[RADIOLIB_LORAWAN_RX2].freq = 4331750;
+    node.channels[RADIOLIB_LORAWAN_RX2].dr   = 0;
+
+    // Force the active uplink DR to the algo-requested value.
+    // MAC commands (LinkADRReq) update channels[UPLINK].dr directly, bypassing
+    // the dynamicChannels pool.  Without this line ChirpStack can silently
+    // change the node's DR even though ADR is disabled.
+    node.channels[RADIOLIB_LORAWAN_UPLINK].dr = this->targetDr;
+
+    // Force RX1 to always use DR0 (SF12) regardless of uplink DR.
+    // rx1DrTable[uplinkDR][5] = DR0 for all uplink DRs in EU433.
+    // This keeps the downlink at the same SF the TMST_OFFSET was calibrated for.
+    node.rx1DrOffset = 5;
+
+    // Force RX delays to match ChirpStack rx1_delay=5
+    // Stock RadioLib computes the RX-window timeout as:
+    //   timeoutUs = toaMin + (scanGuard + 1500) * 1000
+    // The gateway applies a TMST_OFFSET to compensate for GnuRadio/HackRF
+    // pipeline latency, so the signal arrives close to on-time.
+    // With scanGuard=250 the timeout ranges from ~1.77s (SF7) to ~2.41s (SF12),
+    // all fitting within the 2.5s gap between RX1 (5.0s) and RX2 (7.5s).
+    node.rxDelays[1] = 5000;   // RX1 opens 5.0s after TX end
+    node.rxDelays[2] = 7500;   // RX2 opens 7.5s after TX end
+    node.scanGuard   = 250;
+}
+
 int16_t LORA::sendData(const uint8_t* data, size_t len, uint8_t* dlBuf, size_t* dlLen) {
     Serial.print("[LORA] Sending ");
     Serial.print(len);
     Serial.println(" bytes...");
 
+    // Re-apply overrides BEFORE every send, because ChirpStack MAC commands
+    // (RXTimingSetupReq, RXParamSetupReq) in previous downlinks overwrite them.
+    applyOverrides();
+
+    int16_t result;
     if (dlBuf && dlLen) {
-        return node.sendReceive(data, len, 1, dlBuf, dlLen);
+        result = node.sendReceive(data, len, 1, dlBuf, dlLen);
+    } else {
+        result = node.sendReceive(data, len, 1);
     }
-    
-    
-    return node.sendReceive(data, len, 1);
+
+    // Re-apply overrides AFTER send too, in case this downlink had MAC commands
+    applyOverrides();
+
+    return result;
 }

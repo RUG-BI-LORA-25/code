@@ -101,12 +101,6 @@
       modulation="LORA"
       spreading_factors=[7, 8, 9, 10, 11, 12]
 
-    [[regions.gateway.channels]]
-      frequency=433575000
-      bandwidth=125000
-      modulation="LORA"
-      spreading_factors=[7, 8, 9, 10, 11, 12]
-
 
   # Region specific network configuration.
   [regions.network]
@@ -125,19 +119,19 @@
     # 0: RX1 / RX2
     # 1: RX1 only
     # 2: RX2 only
-    rx_window=0
+    rx_window=1
 
     # RX1 delay (1 - 15 seconds).
-    rx1_delay=6
+    rx1_delay=5
 
     # RX1 data-rate offset
-    rx1_dr_offset=0
+    rx1_dr_offset=5
 
     # RX2 data-rate
     rx2_dr=0
 
     # RX2 frequency (Hz)
-    rx2_frequency=434665000
+    rx2_frequency=433175000
 
     # Prefer RX2 on RX1 data-rate less than.
     #
@@ -164,7 +158,7 @@
     downlink_tx_power=-1
 
     # ADR is disabled.
-    adr_disabled=false
+    adr_disabled=true
 
     # Minimum data-rate.
     min_dr=0

@@ -4,7 +4,7 @@ import struct
 import socket
 import base64
 from enum import Enum
-from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT
+from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, TMST_OFFSET_US
 
 # LoRaWAN Packet headers
 # https://github.com/Lora-net/packet_forwarder/blob/master/PROTOCOL.TXT
@@ -84,17 +84,10 @@ class PacketForwarder:
                 print(f"  [DL] PULL_RESP: {len(data)} bytes, no tmst — TX immediately")
 
             # Stop receiver first (this takes a while with SF12),
-            # then sleep whatever time is left before the TX window.
             t_before_stop = time.monotonic()
             if hasattr(self, '_rx_stop'):
                 self._rx_stop()
             stop_took = time.monotonic() - t_before_stop
-            remaining = delay_s - stop_took
-            if remaining > 0:
-                print(f"  [DL] RX stop took {stop_took:.2f}s, sleeping {remaining:.2f}s more")
-                time.sleep(remaining)
-            else:
-                print(f"  [DL] RX stop took {stop_took:.2f}s (ate into TX window by {-remaining:.2f}s)")
 
             # Parse SF from datr field (e.g. "SF9BW125" -> 9)
             tx_sf = None
@@ -105,11 +98,31 @@ class PacketForwarder:
                 except ValueError:
                     pass
 
+            if self.transmitter:
+                try:
+                    self.transmitter.prepare(sf=tx_sf)
+                except Exception as e:
+                    print(f"  [DL] TX prepare error: {e}")
+
+            prep_took = time.monotonic() - t_before_stop - stop_took
+            remaining = delay_s - (stop_took + prep_took)
+            if remaining > 0:
+                print(f"  [DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s, sleeping {remaining:.2f}s more")
+                time.sleep(remaining)
+            else:
+                print(f"  [DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s (over by {-remaining:.2f}s)")
+
+            # Log actual TX moment vs. target
+            actual_tmst_at_tx = self._get_tmst()
+            if 'tmst' in txpk:
+                drift_ms = (actual_tmst_at_tx - txpk['tmst']) / 1000.0
+                print(f"  [DL] TX NOW: tmst={actual_tmst_at_tx}, target={txpk['tmst']}, drift={drift_ms:+.1f}ms")
+
             error = ""
             if self.transmitter:
                 try:
                     print(data.hex())
-                    self.transmitter.send(data, sf=tx_sf)
+                    self.transmitter.transmit(data)
                     print(f"  [DL] Transmitted {len(data)} bytes (SF{tx_sf})")
                 except Exception as e:
                     error = str(e)
@@ -152,8 +165,11 @@ class PacketForwarder:
         
         rxpk = []
         for p in packets:
+            # Subtract TMST_OFFSET_US to compensate for GnuRadio/HackRF pipeline
+            # latency (source buffering + decode + sink buffering). 
+            tmst = (self._get_tmst() - TMST_OFFSET_US) & 0xFFFFFFFF
             rxpk.append({
-                "tmst": self._get_tmst(),
+                "tmst": tmst,
                 "freq": CENTER_FREQ / 1e6,
                 "chan": 0,
                 "rfch": 0,
