@@ -49,6 +49,7 @@
             gnuradioWrapped.python.pkgs.pybind11
             boost
             volk
+            uthash
             spdlog
             libsndfile
             gmp
@@ -83,6 +84,9 @@
             gr-lora-sdr-pkg
             
             pkgs.stdenv.cc.cc.lib
+
+            # Algo dependencies
+            pkgs.uthash
           ];
 
           shellHook = ''

@@ -60,13 +60,16 @@ int main(void) {
 
     // TDMA: initial slot offset so multiple nodes don't transmit simultaneously
     if (TDMA_SLOT_OFFSET_MS > 0) {
-        Serial.print("[MAIN] TDMA slot offset: ");
-        Serial.print(TDMA_SLOT_OFFSET_MS);
-        Serial.println("ms");
+        char slotMsg[48];
+        snprintf(slotMsg, sizeof(slotMsg), "TDMA slot %d\noffset %lums", TDMA_SLOT, TDMA_SLOT_OFFSET_MS);
+        showString(slotMsg);
+        log("TDMA slot offset", "MAIN", Serial);
         delay(TDMA_SLOT_OFFSET_MS);
     }
 
     for (;;) {
+        unsigned long loopStart = millis();
+
         // Read sensors
         uint8_t buffer[10];
         uint8_t offset = 0;
@@ -77,46 +80,57 @@ int main(void) {
         uint8_t dlBuf[251];  // max LoRaWAN downlink payload
         size_t dlLen = 0;
 
+        showString("Sending uplink...");
         int16_t state = lora.sendData(buffer, offset, dlBuf, &dlLen);
         
-        #ifdef DEBUG
         if (state >= 0) {
-            log("Data sent via LoRaWAN successfully.", "MAIN", Serial);
+            log("Uplink sent OK", "MAIN", Serial);
+            showString("Uplink sent OK");
         } else {
-            Serial.print("[MAIN] Failed to send data, error: ");
-            Serial.println(state);
+            char errMsg[32];
+            snprintf(errMsg, sizeof(errMsg), "UL error: %d", state);
+            log(errMsg, "MAIN", Serial);
+            showString(errMsg);
         }
 
         if (state > 0) {
-            Serial.print("[MAIN] Downlink received (RX window ");
-            Serial.print(state);
-            Serial.print("), ");
-            Serial.print(dlLen);
-            Serial.println(" bytes:");
+            char dlMsg[64];
+            snprintf(dlMsg, sizeof(dlMsg), "DL RX%d %u bytes", state, (unsigned)dlLen);
+            log(dlMsg, "MAIN", Serial);
+
+            #ifdef DEBUG
             Serial.print("[MAIN]   HEX: ");
             for (size_t i = 0; i < dlLen; i++) {
                 if (dlBuf[i] < 0x10) Serial.print('0');
                 Serial.print(dlBuf[i], HEX);
             }
             Serial.println();
+            #endif
         }
-        #endif
+
         if (state > 0 && dlLen == sizeof(State)) {
             State params;
             memcpy(&params, dlBuf, sizeof(params));
 
-            #ifdef DEBUG
-            Serial.print("[MAIN] Downlink!! DR: ");
-            Serial.print(params.datarate);
-            Serial.print(", BW: ");
-            Serial.print(params.bandwidth);
-            Serial.print(", PWR: ");
-            Serial.println(params.power);
-            #endif
+            displayState.dr = params.datarate;
+            displayState.txPower = params.power;
+
+            char paramMsg[48];
+            snprintf(paramMsg, sizeof(paramMsg), "DL: DR%d TX%ddBm", params.datarate, params.power);
+            log(paramMsg, "MAIN", Serial);
 
             lora.reBegin(params);
+        } else if (state > 0) {
+            showString("DL (MAC only)");
+        } else {
+            showString("No downlink");
         }
 
-        delay(UPLINK_INTERVAL_MS);
+        // Sleep only the remaining time so total cycle = UPLINK_INTERVAL_MS,
+        // regardless of how long TX + RX windows took.
+        unsigned long elapsed = millis() - loopStart;
+        if (elapsed < UPLINK_INTERVAL_MS) {
+            delay(UPLINK_INTERVAL_MS - elapsed);
+        }
     }
 }

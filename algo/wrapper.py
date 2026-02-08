@@ -17,17 +17,27 @@ logger = logging.getLogger(__name__)
 lib = ctypes.CDLL("./libalgo.so")
 
 
-class State(ctypes.Structure):
-    _pack_ = 1
+class Uplink(ctypes.Structure):
     _fields_ = [
-        ("sf", ctypes.c_int),
+        ("dr", ctypes.c_int),
         ("bw", ctypes.c_float),
-        ("pwr", ctypes.c_int),
+        ("rxPower", ctypes.c_int),
+        ("nodeId", ctypes.c_uint64),
     ]
 
 
-lib.pid.argtypes = [ctypes.POINTER(State)]
-lib.pid.restype = None
+class Command(ctypes.Structure):
+    _fields_ = [
+        ("dr", ctypes.c_int),
+        ("txPower", ctypes.c_int),
+    ]
+
+
+lib.pid.argtypes = [ctypes.POINTER(Uplink)]
+lib.pid.restype = Command
+
+DR_TO_SF = {0: 12, 1: 11, 2: 10, 3: 9, 4: 8, 5: 7}
+SF_TO_DR = {v: k for k, v in DR_TO_SF.items()}
 
 CHIRPSTACK_HOST = os.environ.get("CHIRPSTACK_HOST", "localhost:8080")
 if ":" not in CHIRPSTACK_HOST:
@@ -44,16 +54,19 @@ def _auth_metadata() -> list[tuple[str, str]]:
     return [("authorization", f"Bearer {CHIRPSTACK_API_KEY}")]
 
 
+def dev_eui_to_u64(eui: str) -> int:
+    """Convert a hex DevEUI string (e.g. '975c335979fc518c') to uint64."""
+    return int(eui, 16)
+
+
 async def send_downlink(
     device_client: device_pb2_grpc.DeviceServiceStub,
     dev_eui: str,
-    sf: int,
-    bw: float,
-    pwr: int,
+    cmd: Command,
     auth: list[tuple[str, str]],
 ) -> None:
-    payload = struct.pack("<ifi", sf, bw, pwr)
-    
+    payload = struct.pack("<ii", cmd.dr, cmd.txPower)
+
     req = device_pb2.EnqueueDeviceQueueItemRequest(
         queue_item=device_pb2.DeviceQueueItem(
             dev_eui=dev_eui,
@@ -63,23 +76,14 @@ async def send_downlink(
         ),
     )
     resp = await device_client.Enqueue(req, metadata=auth)
-    logger.info("Enqueued downlink for %s: id=%s", dev_eui, resp.id)
+    logger.info("Enqueued downlink for %s (DR%d, TX %d dBm): id=%s",
+                dev_eui, cmd.dr, cmd.txPower, resp.id)
 
-    # Immediately check what's in the queue
-    queue_req = device_pb2.GetDeviceQueueItemsRequest(dev_eui=dev_eui)
-    queue_resp = await device_client.GetQueue(queue_req, metadata=auth)
-    logger.info("Queue for %s has %d items:", dev_eui, len(queue_resp.result))
-    for item in queue_resp.result:
-        logger.info("  port=%d data=%s pending=%s", item.f_port, item.data.hex(), item.is_pending)
 
 async def flush_queue(device_client, dev_eui, auth):
     req = device_pb2.FlushDeviceQueueRequest(dev_eui=dev_eui)
     await device_client.FlushQueue(req, metadata=auth)
     logger.info("Flushed queue for %s", dev_eui)
-
-# DR (0-5) → SF (12-7) mapping
-DR_TO_SF = {0: 12, 1: 11, 2: 10, 3: 9, 4: 8, 5: 7}
-SF_TO_DR = {v: k for k, v in DR_TO_SF.items()}
 
 
 async def main() -> None:
@@ -87,13 +91,9 @@ async def main() -> None:
     channel = grpc.aio.insecure_channel(CHIRPSTACK_HOST)
     device_client = device_pb2_grpc.DeviceServiceStub(channel)
 
-    pending_dr: dict[str, int | None] = {eui: None for eui in DEV_EUIS}
-
-    # Single wildcard topic covers all devices in the application.
     topic = f"application/{APPLICATION_ID}/device/+/event/up"
 
     async with aiomqtt.Client(MQTT_HOST, MQTT_PORT) as mqtt:
-        # flush queues for all devices at startup
         for dev_eui in DEV_EUIS:
             await flush_queue(device_client, dev_eui, auth)
 
@@ -111,33 +111,24 @@ async def main() -> None:
                 lora = event["txInfo"]["modulation"]["lora"]
                 rssi: int = event["rxInfo"][0]["rssi"]
                 sf, bw = lora["spreadingFactor"], lora["bandwidth"]
-                uplink_dr = SF_TO_DR.get(sf)
+                dr = SF_TO_DR.get(sf, 0)
 
-                logger.info("Device %s — SF%d (DR%s), BW: %d, RSSI: %d",
-                            dev_eui, sf, uplink_dr, bw, rssi)
+                logger.info("Device %s — SF%d (DR%d), BW: %d, RSSI: %d",
+                            dev_eui, sf, dr, bw, rssi)
 
-                if pending_dr[dev_eui] is not None:
-                    if uplink_dr == pending_dr[dev_eui]:
-                        logger.info("Device %s confirmed DR%d — ready for next PID",
-                                    dev_eui, pending_dr[dev_eui])
-                        pending_dr[dev_eui] = None
-                    else:
-                        wanted: int = pending_dr[dev_eui]  # type: ignore[assignment]
-                        logger.info("Device %s still at DR%s, re-sending DR%d",
-                                    dev_eui, uplink_dr, wanted)
-                        await flush_queue(device_client, dev_eui, auth)
-                        await send_downlink(device_client, dev_eui,
-                                           wanted, float(bw), rssi, auth)
-                        continue
+                uplink = Uplink(
+                    dr=dr,
+                    bw=float(bw),
+                    rxPower=rssi,
+                    nodeId=dev_eui_to_u64(dev_eui),
+                )
+                cmd: Command = lib.pid(ctypes.byref(uplink))
 
-                state = State(sf=sf, bw=float(bw), pwr=rssi)
-                lib.pid(ctypes.byref(state))
+                logger.info("PID → DR%d (SF%d), TX %d dBm for %s",
+                            cmd.dr, DR_TO_SF.get(cmd.dr, 0), cmd.txPower, dev_eui)
 
-                pending_dr[dev_eui] = state.sf
-                logger.info("PID output DR%d for %s", state.sf, dev_eui)
-
-                await send_downlink(device_client, dev_eui,
-                                    state.sf, state.bw, state.pwr, auth)
+                await flush_queue(device_client, dev_eui, auth)
+                await send_downlink(device_client, dev_eui, cmd, auth)
 
             except Exception:
                 logger.exception("Error processing message on %s", msg.topic)
@@ -147,5 +138,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        ...
-        
+        exit(0)

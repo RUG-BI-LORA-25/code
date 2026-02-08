@@ -165,8 +165,7 @@ class PacketForwarder:
         
         rxpk = []
         for p in packets:
-            # Subtract TMST_OFFSET_US to compensate for GnuRadio/HackRF pipeline
-            # latency (source buffering + decode + sink buffering). 
+            sf = p.get('sf', SPREADING_FACTOR)
             tmst = (self._get_tmst() - TMST_OFFSET_US) & 0xFFFFFFFF
             rxpk.append({
                 "tmst": tmst,
@@ -175,7 +174,7 @@ class PacketForwarder:
                 "rfch": 0,
                 "stat": 1 if p.get('crc_ok', True) else -1,
                 "modu": "LORA",
-                "datr": f"SF{p.get('sf', SPREADING_FACTOR)}BW{BANDWIDTH // 1000}",
+                "datr": f"SF{sf}BW{BANDWIDTH // 1000}",
                 "codr": f"4/{4 + CODING_RATE}",
                 "rssi": p.get('rssi', -60),
                 "lsnr": p.get('snr', 10.0),

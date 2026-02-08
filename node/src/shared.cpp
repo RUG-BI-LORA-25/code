@@ -1,6 +1,8 @@
 #include "shared.h"
 #include "cartof.h"
 
+DisplayState displayState = {0, 12}; // default DR0 (SF12), 12 dBm
+
 #ifndef SIMULATION_MODE
 Adafruit_SSD1306* display;
 
@@ -8,10 +10,6 @@ void cartof() {
     display->clearDisplay();
     display->drawBitmap(0, 0, cartof_bmp, 128, 64, SSD1306_WHITE);
     display->display();
-    
-    #ifdef DEBUG
-    log("Displaying cartof logo...", "DISPLAY", Serial);
-    #endif
 
     delay(2000);
     display->clearDisplay();
@@ -39,19 +37,57 @@ void initDisplay(TwoWire* wire) {
     #endif
 }
 
-void showString(const char* str) {
-    display->clearDisplay();
+#include "identity.h"
+
+static const int DR_TO_SF[] = {12, 11, 10, 9, 8, 7};
+
+static void drawBanner() {
+    // bottom 10px: horizontal line + status text
+    display->drawFastHLine(0, 53, 128, SSD1306_WHITE);
     display->setTextSize(1);
     display->setTextColor(SSD1306_WHITE);
-    display->setCursor(0, 0);
+    display->setCursor(0, 55);
+    int sf = (displayState.dr >= 0 && displayState.dr <= 5) ? DR_TO_SF[displayState.dr] : 12;
+    uint16_t devPrefix = (uint16_t)((RADIOLIB_LORAWAN_DEV_EUI >> 48) & 0xFFFF);
+    char banner[32];
+    snprintf(banner, sizeof(banner), "%04x|SF%d|TX%d|S%d/%d", devPrefix, sf, displayState.txPower, TDMA_SLOT, TDMA_NUM_SLOTS);
+    display->print(banner);
+}
+
+void showString(const char* str) {
+    if (!display) return;
+    display->clearDisplay();
+    display->setTextColor(SSD1306_WHITE);
+
+    // message area: top 52 pixels (above the banner line)
+    int len = strlen(str);
+
+    if (len <= 10) {
+        // short message: big text, centered in message area
+        display->setTextSize(2);
+        int16_t x1, y1;
+        uint16_t w, h;
+        display->getTextBounds(str, 0, 0, &x1, &y1, &w, &h);
+        display->setCursor((128 - w) / 2, (52 - h) / 2);
+    } else if (len <= 21) {
+        // medium: size 2, slight offset
+        display->setTextSize(2);
+        display->setCursor(0, 4);
+    } else {
+        // long: size 1 (21 chars/line)
+        display->setTextSize(1);
+        display->setCursor(0, 0);
+    }
+
     display->println(str);
+    drawBanner();
     display->display();
-    delay(100);
 }
 #endif
 
 void log(const char* msg, HardwareSerial& serial) {
     serial.println(msg);
+    showString(msg);
 }
 
 void log(const char msg[], const char component[], HardwareSerial& serial) {
@@ -59,6 +95,7 @@ void log(const char msg[], const char component[], HardwareSerial& serial) {
     serial.print(component);
     serial.print("] ");
     serial.println(msg);
+    showString(msg);
 }
 
 void exception() {

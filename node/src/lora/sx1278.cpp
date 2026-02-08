@@ -26,12 +26,10 @@ int join(LoRaWANNode& node) {
 }
 #else
 int join(LoRaWANNode& node) {
-    // network ses key: 770a3b13f1910257ab5f5ce134418621
-    const uint8_t netKey[] = { 0x77, 0x0a, 0x3b, 0x13, 0xf1, 0x91, 0x02, 0x57, 0xab, 0x5f, 0x5c, 0xe1, 0x34, 0x41, 0x86, 0x21 };
-    // app key: b768e931022d35d8681b3cc85e2e9002
-    const uint8_t a[] = { 0xb7, 0x68, 0xe9, 0x31, 0x02, 0x2d, 0x35, 0xd8, 0x68, 0x1b, 0x3c, 0xc8, 0x5e, 0x2e, 0x90, 0x02 };
+    const uint8_t netKey[] = { RADIOLIB_LORAWAN_NET_KEY };
+    const uint8_t appSKey[] = { RADIOLIB_LORAWAN_APP_S_KEY };
 
-    int state = node.beginABP(0x01fa06f3, NULL, NULL, netKey, a);
+    int state = node.beginABP(RADIOLIB_LORAWAN_DEV_ADDR, NULL, NULL, netKey, appSKey);
     if (state != RADIOLIB_ERR_NONE) {
         return state;
     }
@@ -49,7 +47,9 @@ void LORA::reBegin(State target) {
     Serial.print("[LORA] Algo requested DR change: ");
     Serial.print(targetDr);
     Serial.print(" -> ");
-    Serial.println(target.datarate);
+    Serial.print(target.datarate);
+    Serial.print(", TX power: ");
+    Serial.println(target.power);
     targetDr = target.datarate;
 }
 
@@ -128,29 +128,14 @@ void LORA::applyOverrides() {
             node.dynamicChannels[RADIOLIB_LORAWAN_UPLINK][i];
     }
 
-    // Force single-channel RX2 on 433.175 MHz, always DR0 (SF12) for RX2
     node.channels[RADIOLIB_LORAWAN_RX2].freq = 4331750;
     node.channels[RADIOLIB_LORAWAN_RX2].dr   = 0;
 
-    // Force the active uplink DR to the algo-requested value.
-    // MAC commands (LinkADRReq) update channels[UPLINK].dr directly, bypassing
-    // the dynamicChannels pool.  Without this line ChirpStack can silently
-    // change the node's DR even though ADR is disabled.
     node.channels[RADIOLIB_LORAWAN_UPLINK].dr = this->targetDr;
 
-    // Force RX1 to always use DR0 (SF12) regardless of uplink DR.
-    // rx1DrTable[uplinkDR][5] = DR0 for all uplink DRs in EU433.
-    // This keeps the downlink at the same SF the TMST_OFFSET was calibrated for.
     node.rx1DrOffset = 5;
 
-    // Force RX delays to match ChirpStack rx1_delay=5
-    // Stock RadioLib computes the RX-window timeout as:
-    //   timeoutUs = toaMin + (scanGuard + 1500) * 1000
-    // The gateway applies a TMST_OFFSET to compensate for GnuRadio/HackRF
-    // pipeline latency, so the signal arrives close to on-time.
-    // With scanGuard=250 the timeout ranges from ~1.77s (SF7) to ~2.41s (SF12),
-    // all fitting within the 2.5s gap between RX1 (5.0s) and RX2 (7.5s).
-    node.rxDelays[1] = 5000;   // RX1 opens 5.0s after TX end
+    node.rxDelays[1] = 5500;   // RX1 opens 5.0s after TX end
     node.rxDelays[2] = 7500;   // RX2 opens 7.5s after TX end
     node.scanGuard   = 250;
 }

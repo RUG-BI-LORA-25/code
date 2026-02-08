@@ -24,7 +24,14 @@ void blinkInternal(int times, int delayMs);
 
 struct __attribute__((packed)) State {
     int datarate;
-    float bandwidth;
     int power;
 };
+
+// Current node settings shown on the display banner
+struct DisplayState {
+    int dr;       // current data rate (0-5)
+    int txPower;  // current TX power in dBm
+};
+extern DisplayState displayState;
+
 // void scanI2CBus(TwoWire* I2CBus);
