@@ -37,6 +37,7 @@ class Transmitter:
         time.sleep(tx_time)
         self._tb.stop()
         self._tb.wait()
+        del self._tb
         self._tb = None
 
     def send(self, data, sf=None):

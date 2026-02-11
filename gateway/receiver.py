@@ -1,4 +1,4 @@
-from gnuradio import gr, blocks
+from gnuradio import gr, blocks, analog
 import numpy as np
 import pmt
 import osmosdr
@@ -80,12 +80,12 @@ class Receiver(gr.top_block):
 
         os_factor = int(SAMP_RATE / BANDWIDTH)
 
-        # --- RSSI measurement via built-in probe ---
-        # Use a simple mag-squared → probe chain.  The probe returns the
-        # instantaneous value; we do the log10 + offset in _on_packet.
-        self.mag_sq = blocks.complex_to_mag_squared(1)
-        self.power_probe_blk = blocks.probe_signal_f()
-        self.connect((self.osmosdr_source, 0), (self.mag_sq, 0),
+        # --- RSSI measurement via averaged power probe ---
+        # probe_avg_mag_sqrd_c keeps an IIR average of |x|², so the
+        # reading stays valid even right after an RX restart.
+        alpha = 1.0 - np.exp(-1.0 / (SAMP_RATE * 0.1))
+        self.power_probe_blk = analog.probe_avg_mag_sqrd_c(0, alpha)
+        self.connect((self.osmosdr_source, 0),
                      (self.power_probe_blk, 0))
 
         # --- One full decode chain per SF, all fed from osmosdr source ---

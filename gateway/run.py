@@ -69,12 +69,14 @@ def main():
             if receiver_ref[0]:
                 receiver_ref[0].stop()
                 receiver_ref[0].wait()
-                receiver_ref[0] = None
 
     def start_receiver_again():
-        """Restart the receiver after TX completes."""
+        """Restart the same receiver after TX completes."""
         with radio_lock:
-            receiver_ref[0] = start_receiver(on_packet)
+            if receiver_ref[0]:
+                receiver_ref[0].start()
+            else:
+                receiver_ref[0] = start_receiver(on_packet)
 
     # Give the forwarder the real transmitter + RX stop/start callbacks
     forwarder.set_transmitter(transmitter)
