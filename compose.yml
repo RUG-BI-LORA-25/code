@@ -69,6 +69,7 @@ services:
   #   restart: unless-stopped
   #   privileged: true
   #   network_mode: host
+  #   shm_size: '512m'
   #   devices:
   #     - /dev/bus/usb:/dev/bus/usb
   #   volumes:
@@ -81,6 +82,13 @@ services:
   #   depends_on:
   #     - chirpstack-gateway-bridge
 
+  # wrapper:
+  #   build: algo
+  #   container_name: wrapper
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   env_file:
+  #     - .env
 volumes:
   postgresqldata:
   redisdata:

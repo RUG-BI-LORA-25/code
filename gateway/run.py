@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 import time
+import logging
 import threading
 from datetime import datetime
-from config import (CENTER_FREQ, SPREADING_FACTOR, BANDWIDTH,
+from config import (CENTER_FREQ, BANDWIDTH,
                     CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI)
 from receiver import Receiver
 from forwarder import PacketForwarder
 from transmitter import Transmitter
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
 if not __import__('shutil').which('hackrf_transfer'):
-    print("Please install hackrf tools (hackrf_transfer)")
+    logger.error("Please install hackrf tools (hackrf_transfer)")
     exit(1)
 
 def cartof():
@@ -23,13 +31,13 @@ def cartof():
     import subprocess, os
     cartof_file = os.path.join(os.path.dirname(__file__), 'cartof.iqhackrf')
     if os.path.isfile(cartof_file):
-        print("Starting cartof transmission...")
+        logger.info("Starting cartof transmission...")
         subprocess.run([
             'hackrf_transfer', '-t', cartof_file,
             '-f', str(int(CENTER_FREQ)), '-s', '2000000', '-x', '20', '-a', '1'
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
-        print("cartof.iqhackrf file not found, skipping transmission.")
+        logger.warning("cartof.iqhackrf file not found, skipping transmission.")
 
 
 def main():
@@ -72,17 +80,15 @@ def main():
     forwarder.set_transmitter(transmitter)
     forwarder.set_receiver(start_receiver_again, stop_receiver)
 
-    def on_packet(data, crc_ok, sf=12):
+    def on_packet(data, crc_ok, sf=12, rssi=-60.0):
         packet_count[0] += 1
-        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        print(f"\n[{ts}] RX: {len(data)} bytes (SF{sf})")
+        logger.info(f"RX: {len(data)} bytes (SF{sf}) RSSI={rssi:.1f}dBm")
 
-        # TODO: rssi snr retrieving
         forwarder.send_push_data([{
-            'data': data, 'crc_ok': crc_ok, 'rssi': -60, 'snr': 10.0, 'sf': sf
+            'data': data, 'crc_ok': crc_ok, 'rssi': rssi, 'snr': 0.0, 'sf': sf
         }])
 
-    print("\nStarting gateway... Press Ctrl+C to stop\n")
+    logger.info("Starting gateway... Press Ctrl+C to stop")
 
     forwarder.send_stat()
     forwarder.send_keepalive()
@@ -108,12 +114,12 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n\nStopping gateway...")
+        logger.info("Stopping gateway...")
 
     if receiver_ref[0]:
         receiver_ref[0].stop()
         receiver_ref[0].wait()
-    print(f"Total packets received: {packet_count[0]}")
+    logger.info(f"Total packets received: {packet_count[0]}")
 
 
 if __name__ == "__main__":

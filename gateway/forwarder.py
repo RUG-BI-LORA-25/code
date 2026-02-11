@@ -3,8 +3,11 @@ import json
 import struct
 import socket
 import base64
+import logging
 from enum import Enum
 from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, TMST_OFFSET_US
+
+logger = logging.getLogger(__name__)
 
 # LoRaWAN Packet headers
 # https://github.com/Lora-net/packet_forwarder/blob/master/PROTOCOL.TXT
@@ -63,7 +66,7 @@ class PacketForwarder:
             data = base64.b64decode(txpk['data'])
 
             # Log the full txpk so we can see what ChirpStack wants
-            print(f"  [DL] txpk: freq={txpk.get('freq')}MHz, datr={txpk.get('datr')}, "
+            logger.info(f"[DL] txpk: freq={txpk.get('freq')}MHz, datr={txpk.get('datr')}, "
                   f"tmst={txpk.get('tmst')}, powe={txpk.get('powe')}, "
                   f"modu={txpk.get('modu')}, size={txpk.get('size')}")
 
@@ -77,11 +80,11 @@ class PacketForwarder:
                 delta_us = (target_tmst - current_tmst) & 0xFFFFFFFF
                 if delta_us < 30_000_000:
                     delay_s = delta_us / 1_000_000.0
-                    print(f"  [DL] PULL_RESP: {len(data)} bytes, TX in {delay_s:.2f}s (tmst={target_tmst})")
+                    logger.info(f"[DL] PULL_RESP: {len(data)} bytes, TX in {delay_s:.2f}s (tmst={target_tmst})")
                 else:
-                    print(f"  [DL] PULL_RESP: {len(data)} bytes, stale tmst — TX immediately")
+                    logger.warning(f"[DL] PULL_RESP: {len(data)} bytes, stale tmst — TX immediately")
             else:
-                print(f"  [DL] PULL_RESP: {len(data)} bytes, no tmst — TX immediately")
+                logger.warning(f"[DL] PULL_RESP: {len(data)} bytes, no tmst — TX immediately")
 
             # Stop receiver first (this takes a while with SF12),
             t_before_stop = time.monotonic()
@@ -102,31 +105,31 @@ class PacketForwarder:
                 try:
                     self.transmitter.prepare(sf=tx_sf)
                 except Exception as e:
-                    print(f"  [DL] TX prepare error: {e}")
+                    logger.error(f"[DL] TX prepare error: {e}")
 
             prep_took = time.monotonic() - t_before_stop - stop_took
             remaining = delay_s - (stop_took + prep_took)
             if remaining > 0:
-                print(f"  [DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s, sleeping {remaining:.2f}s more")
+                logger.debug(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s, sleeping {remaining:.2f}s more")
                 time.sleep(remaining)
             else:
-                print(f"  [DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s (over by {-remaining:.2f}s)")
+                logger.warning(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s (over by {-remaining:.2f}s)")
 
             # Log actual TX moment vs. target
             actual_tmst_at_tx = self._get_tmst()
             if 'tmst' in txpk:
                 drift_ms = (actual_tmst_at_tx - txpk['tmst']) / 1000.0
-                print(f"  [DL] TX NOW: tmst={actual_tmst_at_tx}, target={txpk['tmst']}, drift={drift_ms:+.1f}ms")
+                logger.debug(f"[DL] TX NOW: tmst={actual_tmst_at_tx}, target={txpk['tmst']}, drift={drift_ms:+.1f}ms")
 
             error = ""
             if self.transmitter:
                 try:
-                    print(data.hex())
+                    logger.debug(f"[DL] TX payload: {data.hex()}")
                     self.transmitter.transmit(data)
-                    print(f"  [DL] Transmitted {len(data)} bytes (SF{tx_sf})")
+                    logger.info(f"[DL] Transmitted {len(data)} bytes (SF{tx_sf})")
                 except Exception as e:
                     error = str(e)
-                    print(f"  [DL] TX error: {e}")
+                    logger.error(f"[DL] TX error: {e}")
             else:
                 error = "NO_TRANSMITTER"
 
@@ -134,7 +137,7 @@ class PacketForwarder:
                 self._rx_start()
             self._send_tx_ack(token, error)
         except Exception as e:
-            print(f"Downlink error: {e}")
+            logger.error(f"Downlink error: {e}", exc_info=True)
             self._send_tx_ack(token, str(e))
 
     def _send_tx_ack(self, token, error=""):
@@ -145,7 +148,7 @@ class PacketForwarder:
         else:
             ack_payload = json.dumps({"txpk_ack": {"error": "NONE"}}).encode()
         self.sock.sendto(header + ack_payload, (self.host, self.port))
-        print(f"  [DL] TX_ACK sent (token={token}, error={error or 'NONE'})")
+        logger.debug(f"[DL] TX_ACK sent (token={token}, error={error or 'NONE'})")
 
     def send_pull_data(self):
         packet = struct.pack('>BHB', 0x02, self._next_id(), Identifiers.PULL_DATA.value) + self.gateway_eui
@@ -176,8 +179,8 @@ class PacketForwarder:
                 "modu": "LORA",
                 "datr": f"SF{sf}BW{BANDWIDTH // 1000}",
                 "codr": f"4/{4 + CODING_RATE}",
-                "rssi": p.get('rssi', -60),
-                "lsnr": p.get('snr', 10.0),
+                "rssi": int(round(p.get('rssi', -60))),
+                "lsnr": round(p.get('snr', 10.0), 1),
                 "size": len(p['data']),
                 "data": base64.b64encode(p['data']).decode('ascii')
             })
@@ -190,7 +193,7 @@ class PacketForwarder:
         message = header + json_data.encode('utf-8')
         
         self.sock.sendto(message, (self.host, self.port))
-        print(f"Sent PUSH_DATA ({len(packets)} packets)")
+        logger.info(f"Sent PUSH_DATA ({len(packets)} packets)")
         
     def send_keepalive(self):
         uid = self._next_id()

@@ -2,14 +2,16 @@ from gnuradio import gr, blocks
 import numpy as np
 import pmt
 import osmosdr
+import logging
 from gnuradio.lora_sdr import lora_sdr_python as lora_sdr
 from config import (CENTER_FREQ, BANDWIDTH, CODING_RATE,
                     SYNC_WORD, HAS_CRC, IMPLICIT_HEADER, SAMP_RATE,
                     RF_GAIN, IF_GAIN, BB_GAIN)
 
+logger = logging.getLogger(__name__)
+
 # SFs to scan simultaneously
 RX_SPREADING_FACTORS = [7, 8, 9, 10, 11, 12]
-
 
 class LoRaPacketSink(gr.sync_block):
     def __init__(self, callback):
@@ -40,7 +42,18 @@ class LoRaPacketSink(gr.sync_block):
 
 class Receiver(gr.top_block):
     """Multi-SF LoRa receiver: one osmosdr source feeds parallel decode
-    chains for each SF in RX_SPREADING_FACTORS."""
+    chains for each SF in RX_SPREADING_FACTORS.
+
+    The packet_callback signature is:
+        callback(data: bytes, crc_ok: bool, sf: int, rssi: float, snr: float)
+    """
+
+    # Empirical dBFS → dBm offset for HackRF One.
+    # HackRF has no calibrated power reference; this constant should be
+    # tuned against a known-power signal.  A typical value at 433 MHz with
+    # RF=40 IF=40 BB=20 is around -10 to +5 depending on the individual
+    # board.  Set via HACKRF_RSSI_OFFSET env-var to fine-tune.
+    HACKRF_RSSI_OFFSET = -30.0
 
     def __init__(self, packet_callback):
         gr.top_block.__init__(self, "HackRF LoRa Multi-SF Receiver")
@@ -57,12 +70,25 @@ class Receiver(gr.top_block):
         self.osmosdr_source.set_bandwidth(0, 0)
 
         max_sf = max(RX_SPREADING_FACTORS)
-        min_buffer = int(np.ceil(SAMP_RATE / BANDWIDTH * (2**max_sf + 2)))
+        # Buffer must hold at least one full symbol at highest SF.
+        # Round up to next power of 2 *strictly greater* than the minimum.
+        min_needed = int(np.ceil(SAMP_RATE / BANDWIDTH * (2**max_sf + 2)))
+        min_buffer = 1
+        while min_buffer <= min_needed:
+            min_buffer <<= 1
         self.osmosdr_source.set_min_output_buffer(min_buffer)
 
         os_factor = int(SAMP_RATE / BANDWIDTH)
 
-        # --- One full decode chain per SF ---
+        # --- RSSI measurement via built-in probe ---
+        # Use a simple mag-squared → probe chain.  The probe returns the
+        # instantaneous value; we do the log10 + offset in _on_packet.
+        self.mag_sq = blocks.complex_to_mag_squared(1)
+        self.power_probe_blk = blocks.probe_signal_f()
+        self.connect((self.osmosdr_source, 0), (self.mag_sq, 0),
+                     (self.power_probe_blk, 0))
+
+        # --- One full decode chain per SF, all fed from osmosdr source ---
         for sf in RX_SPREADING_FACTORS:
             frame_sync = lora_sdr.frame_sync(
                 int(CENTER_FREQ), BANDWIDTH, sf, IMPLICIT_HEADER,
@@ -78,10 +104,10 @@ class Receiver(gr.top_block):
             dewhitening = lora_sdr.dewhitening()
             crc_verif = lora_sdr.crc_verif(False, False)
             packet_sink = LoRaPacketSink(
-                lambda data, crc_ok, _sf=sf: self._on_packet(data, crc_ok, _sf)
+                lambda data, crc_ok, _sf=sf: self._on_packet(data, crc_ok, _sf),
             )
 
-            # Source -> decode chain
+            # osmosdr source → decode chain (GNU Radio auto-fans-out)
             self.connect((self.osmosdr_source, 0), (frame_sync, 0))
             self.connect((frame_sync, 0), (fft_demod, 0))
             self.connect((fft_demod, 0), (gray_mapping, 0))
@@ -96,8 +122,10 @@ class Receiver(gr.top_block):
             self.msg_connect((header_decoder, "frame_info"), (frame_sync, "frame_info"))
             self.msg_connect((crc_verif, "msg"), (packet_sink, "msg"))
 
-        print(f"  [RX] Multi-SF receiver: {RX_SPREADING_FACTORS}")
+        logger.info(f"Multi-SF receiver initialized: {RX_SPREADING_FACTORS}")
 
     def _on_packet(self, data, crc_ok, sf):
-        print(f"  [RX] Packet on SF{sf}")
-        self.packet_callback(data, crc_ok, sf)
+        mean_pwr = self.power_probe_blk.level()
+        dbfs = 10.0 * np.log10(mean_pwr) if mean_pwr > 0 else -120.0
+        rssi_dbm = dbfs + self.HACKRF_RSSI_OFFSET
+        self.packet_callback(data, crc_ok, sf, rssi_dbm)
