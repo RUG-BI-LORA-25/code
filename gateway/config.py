@@ -26,6 +26,14 @@ BB_GAIN = int(os.environ.get('BB_GAIN', 20))
 # RX-stop + TX-prep + USB buffering latency.  Env-overridable per machine.
 DL_DELAY_S = float(os.environ.get('DL_DELAY_S', 5.0))
 
+# Microseconds to subtract from the uplink tmst reported to ChirpStack.
+# This makes ChirpStack think the packet arrived earlier, so it schedules
+# the PULL_RESP far enough in the "future" that it actually sends it.
+# We do NOT use ChirpStack's scheduled tmst for TX timing (DL_DELAY_S
+# handles that), but ChirpStack will refuse to send a PULL_RESP if the
+# target tmst has already passed.
+TMST_OFFSET_US = int(os.environ.get('TMST_OFFSET_US', 30_000_000))
+
 CHIRPSTACK_HOST = os.environ.get('CHIRPSTACK_HOST', '192.168.178.212')
 CHIRPSTACK_PORT = int(os.environ.get('CHIRPSTACK_PORT', 1700))
 GATEWAY_EUI = bytes.fromhex(os.environ.get('GATEWAY_EUI', '64b708ffff8a0a74'))

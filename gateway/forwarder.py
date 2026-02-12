@@ -5,7 +5,7 @@ import socket
 import base64
 import logging
 from enum import Enum
-from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, DL_DELAY_S
+from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, DL_DELAY_S, TMST_OFFSET_US
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ class PacketForwarder:
         rxpk = []
         for p in packets:
             sf = p.get('sf', SPREADING_FACTOR)
-            tmst = self._get_tmst()
+            tmst = (self._get_tmst() - TMST_OFFSET_US) & 0xFFFFFFFF
             rxpk.append({
                 "tmst": tmst,
                 "freq": CENTER_FREQ / 1e6,
