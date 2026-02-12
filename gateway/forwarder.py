@@ -5,7 +5,7 @@ import socket
 import base64
 import logging
 from enum import Enum
-from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, TMST_OFFSET_US
+from config import CENTER_FREQ, BANDWIDTH, SPREADING_FACTOR, CODING_RATE, STAT, DL_DELAY_S
 
 logger = logging.getLogger(__name__)
 
@@ -70,23 +70,15 @@ class PacketForwarder:
                   f"tmst={txpk.get('tmst')}, powe={txpk.get('powe')}, "
                   f"modu={txpk.get('modu')}, size={txpk.get('size')}")
 
-            # Calculate how long to wait before TX.
-            # Do this BEFORE stopping the receiver so the stop time
-            # is absorbed into the wait.
-            delay_s = 0
-            if 'tmst' in txpk:
-                target_tmst = txpk['tmst']
-                current_tmst = self._get_tmst()
-                delta_us = (target_tmst - current_tmst) & 0xFFFFFFFF
-                if delta_us < 30_000_000:
-                    delay_s = delta_us / 1_000_000.0
-                    logger.info(f"[DL] PULL_RESP: {len(data)} bytes, TX in {delay_s:.2f}s (tmst={target_tmst})")
-                else:
-                    logger.warning(f"[DL] PULL_RESP: {len(data)} bytes, stale tmst — TX immediately")
-            else:
-                logger.warning(f"[DL] PULL_RESP: {len(data)} bytes, no tmst — TX immediately")
+            # ---- Fixed delay from last uplink ----
+            # We ignore ChirpStack's tmst scheduling entirely because the
+            # HackRF has no hardware-timed TX.  Instead we target a fixed
+            # wall-clock delay (DL_DELAY_S) after we received the uplink.
+            t_target = None
+            if self._last_uplink_mono is not None:
+                t_target = self._last_uplink_mono + DL_DELAY_S
 
-            # Stop receiver first (this takes a while with SF12),
+            # Stop receiver (this takes a while with SF12)
             t_before_stop = time.monotonic()
             if hasattr(self, '_rx_stop'):
                 self._rx_stop()
@@ -108,18 +100,22 @@ class PacketForwarder:
                     logger.error(f"[DL] TX prepare error: {e}")
 
             prep_took = time.monotonic() - t_before_stop - stop_took
-            remaining = delay_s - (stop_took + prep_took)
-            if remaining > 0:
-                logger.debug(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s, sleeping {remaining:.2f}s more")
-                time.sleep(remaining)
-            else:
-                logger.warning(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s (over by {-remaining:.2f}s)")
 
-            # Log actual TX moment vs. target
-            actual_tmst_at_tx = self._get_tmst()
-            if 'tmst' in txpk:
-                drift_ms = (actual_tmst_at_tx - txpk['tmst']) / 1000.0
-                logger.debug(f"[DL] TX NOW: tmst={actual_tmst_at_tx}, target={txpk['tmst']}, drift={drift_ms:+.1f}ms")
+            # Sleep until the target time
+            if t_target is not None:
+                remaining = t_target - time.monotonic()
+                if remaining > 0:
+                    logger.info(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s, "
+                                f"sleeping {remaining:.2f}s to hit DL_DELAY={DL_DELAY_S}s")
+                    time.sleep(remaining)
+                else:
+                    logger.warning(f"[DL] RX stop {stop_took:.2f}s + TX prep {prep_took:.2f}s "
+                                   f"— already {-remaining:.2f}s past target (DL_DELAY={DL_DELAY_S}s)")
+            else:
+                logger.warning("[DL] No uplink timestamp — TX immediately after prep")
+
+            total_elapsed = time.monotonic() - (self._last_uplink_mono or t_before_stop)
+            logger.info(f"[DL] TX at {total_elapsed:.2f}s after uplink")
 
             error = ""
             if self.transmitter:
@@ -169,7 +165,7 @@ class PacketForwarder:
         rxpk = []
         for p in packets:
             sf = p.get('sf', SPREADING_FACTOR)
-            tmst = (self._get_tmst() - TMST_OFFSET_US) & 0xFFFFFFFF
+            tmst = self._get_tmst()
             rxpk.append({
                 "tmst": tmst,
                 "freq": CENTER_FREQ / 1e6,

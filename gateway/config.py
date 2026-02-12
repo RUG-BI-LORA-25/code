@@ -20,11 +20,11 @@ RF_GAIN = int(os.environ.get('RF_GAIN', 40))
 IF_GAIN = int(os.environ.get('IF_GAIN', 40))
 BB_GAIN = int(os.environ.get('BB_GAIN', 20))
 
-# Microseconds to subtract from the uplink tmst reported to ChirpStack.
-# Compensates for GnuRadio pipeline + HackRF USB buffering latency so that
-# the downlink RF signal actually arrives when the node's RX window is open.
-#   positive → we report an earlier tmst → ChirpStack schedules TX earlier
-TMST_OFFSET_US = int(os.environ.get('TMST_OFFSET_US', 2_500_000))
+# Fixed delay (seconds) between receiving an uplink and transmitting the
+# downlink.  Must be tuned so the RF arrives when the node's RX1 window is
+# open (node opens RX1 at 5.5 s after its own TX end).  Accounts for
+# RX-stop + TX-prep + USB buffering latency.  Env-overridable per machine.
+DL_DELAY_S = float(os.environ.get('DL_DELAY_S', 5.0))
 
 CHIRPSTACK_HOST = os.environ.get('CHIRPSTACK_HOST', '192.168.178.212')
 CHIRPSTACK_PORT = int(os.environ.get('CHIRPSTACK_PORT', 1700))
