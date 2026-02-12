@@ -48,11 +48,6 @@ class Receiver(gr.top_block):
         callback(data: bytes, crc_ok: bool, sf: int, rssi: float, snr: float)
     """
 
-    # Empirical dBFS → dBm offset for HackRF One.
-    # HackRF has no calibrated power reference; this constant should be
-    # tuned against a known-power signal.  A typical value at 433 MHz with
-    # RF=40 IF=40 BB=20 is around -10 to +5 depending on the individual
-    # board.  Set via HACKRF_RSSI_OFFSET env-var to fine-tune.
     HACKRF_RSSI_OFFSET = -30.0
 
     def __init__(self, packet_callback):
@@ -80,7 +75,6 @@ class Receiver(gr.top_block):
 
         os_factor = int(SAMP_RATE / BANDWIDTH)
 
-        # --- RSSI measurement via averaged power probe ---
         # probe_avg_mag_sqrd_c keeps an IIR average of |x|², so the
         # reading stays valid even right after an RX restart.
         alpha = 1.0 - np.exp(-1.0 / (SAMP_RATE * 0.1))
@@ -88,7 +82,6 @@ class Receiver(gr.top_block):
         self.connect((self.osmosdr_source, 0),
                      (self.power_probe_blk, 0))
 
-        # --- One full decode chain per SF, all fed from osmosdr source ---
         for sf in RX_SPREADING_FACTORS:
             frame_sync = lora_sdr.frame_sync(
                 int(CENTER_FREQ), BANDWIDTH, sf, IMPLICIT_HEADER,
