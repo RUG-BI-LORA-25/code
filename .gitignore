@@ -5,3 +5,5 @@ ns-3-dev/
 .pio/
 node/platformio.ini
 *__pycache__/
+*.csv
+*.json

@@ -9,6 +9,24 @@ import aiomqtt
 import grpc.aio
 from chirpstack_api.api import device_pb2, device_pb2_grpc
 
+# Shared state file so the gateway can read last-commanded TX power per node
+TX_STATE_PATH = os.path.join(os.path.dirname(__file__), '..', 'gateway', 'tx_state.json')
+
+def _write_tx_state(dev_eui: str, tx_power: int) -> None:
+    """Atomically update the per-node TX power state file."""
+    try:
+        state = {}
+        if os.path.exists(TX_STATE_PATH):
+            with open(TX_STATE_PATH) as f:
+                state = json.load(f)
+        state[dev_eui] = tx_power
+        tmp = TX_STATE_PATH + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(state, f)
+        os.replace(tmp, TX_STATE_PATH)
+    except Exception:
+        logger.exception('Failed to write TX state')
+
 logging.basicConfig(
     level=logging.DEBUG if os.environ.get("DEBUG") else logging.INFO,
 )
@@ -129,6 +147,7 @@ async def main() -> None:
 
                 await flush_queue(device_client, dev_eui, auth)
                 await send_downlink(device_client, dev_eui, cmd, auth)
+                _write_tx_state(dev_eui, cmd.txPower)
 
             except Exception:
                 logger.exception("Error processing message on %s", msg.topic)

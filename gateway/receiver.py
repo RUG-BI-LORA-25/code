@@ -1,4 +1,4 @@
-from gnuradio import gr, blocks, analog
+from gnuradio import gr, blocks
 import numpy as np
 import pmt
 import osmosdr
@@ -6,12 +6,37 @@ import logging
 from gnuradio.lora_sdr import lora_sdr_python as lora_sdr
 from config import (CENTER_FREQ, BANDWIDTH, CODING_RATE,
                     SYNC_WORD, HAS_CRC, IMPLICIT_HEADER, SAMP_RATE,
-                    RF_GAIN, IF_GAIN, BB_GAIN)
+                    RF_GAIN, IF_GAIN, BB_GAIN, NOISE_FLOOR_DBM)
 
 logger = logging.getLogger(__name__)
 
 # SFs to scan simultaneously
 RX_SPREADING_FACTORS = [7, 8, 9, 10, 11, 12]
+
+
+class SyncLogSink(gr.sync_block):
+    """Captures the 5-float sync log vector produced by frame_sync port 1:
+       [SNR, CFO, STO, SFO, off_by_one_id]
+    The last received SNR value is stored in self.snr."""
+
+    def __init__(self):
+        gr.sync_block.__init__(self, name="sync_log_sink",
+                               in_sig=[np.float32], out_sig=None)
+        self.snr = None
+
+    def work(self, input_items, output_items):
+        data = input_items[0]
+        n = len(data)
+        # frame_sync produces 5 floats per frame; SNR is index 0
+        if n >= 5:
+            # Take the last complete group of 5
+            last_start = (n // 5 - 1) * 5
+            self.snr = float(data[last_start])
+        elif n >= 1:
+            # Partial — still grab the first float as SNR
+            self.snr = float(data[0])
+        return n
+
 
 class LoRaPacketSink(gr.sync_block):
     def __init__(self, callback):
@@ -44,11 +69,18 @@ class Receiver(gr.top_block):
     """Multi-SF LoRa receiver: one osmosdr source feeds parallel decode
     chains for each SF in RX_SPREADING_FACTORS.
 
+    SNR is obtained directly from gr-lora_sdr's frame_sync block, which
+    estimates it from the preamble upchirps (FFT peak energy vs total
+    energy).  This requires connecting frame_sync's output port 1 (the
+    sync-log port).
+
+    RSSI is derived from the SNR and the receiver noise floor
+    (computed in config.py from -174 dBm/Hz + 10*log10(BW) + NF):
+        RSSI = NOISE_FLOOR_DBM + SNR
+
     The packet_callback signature is:
         callback(data: bytes, crc_ok: bool, sf: int, rssi: float, snr: float)
     """
-
-    HACKRF_RSSI_OFFSET = -30.0
 
     def __init__(self, packet_callback):
         gr.top_block.__init__(self, "HackRF LoRa Multi-SF Receiver")
@@ -75,12 +107,8 @@ class Receiver(gr.top_block):
 
         os_factor = int(SAMP_RATE / BANDWIDTH)
 
-        # probe_avg_mag_sqrd_c keeps an IIR average of |x|², so the
-        # reading stays valid even right after an RX restart.
-        alpha = 1.0 - np.exp(-1.0 / (SAMP_RATE * 0.1))
-        self.power_probe_blk = analog.probe_avg_mag_sqrd_c(0, alpha)
-        self.connect((self.osmosdr_source, 0),
-                     (self.power_probe_blk, 0))
+        # Per-SF SNR sinks connected to frame_sync output port 1
+        self._snr_sinks = {}   # sf -> SyncLogSink
 
         for sf in RX_SPREADING_FACTORS:
             frame_sync = lora_sdr.frame_sync(
@@ -100,9 +128,16 @@ class Receiver(gr.top_block):
                 lambda data, crc_ok, _sf=sf: self._on_packet(data, crc_ok, _sf),
             )
 
+            # Sync log sink to capture SNR from frame_sync port 1
+            snr_sink = SyncLogSink()
+            self._snr_sinks[sf] = snr_sink
+
             # osmosdr source → decode chain (GNU Radio auto-fans-out)
             self.connect((self.osmosdr_source, 0), (frame_sync, 0))
             self.connect((frame_sync, 0), (fft_demod, 0))
+            # Connect frame_sync output port 1 → SNR sink
+            self.connect((frame_sync, 1), (snr_sink, 0))
+
             self.connect((fft_demod, 0), (gray_mapping, 0))
             self.connect((gray_mapping, 0), (deinterleaver, 0))
             self.connect((deinterleaver, 0), (hamming_dec, 0))
@@ -118,7 +153,11 @@ class Receiver(gr.top_block):
         logger.info(f"Multi-SF receiver initialized: {RX_SPREADING_FACTORS}")
 
     def _on_packet(self, data, crc_ok, sf):
-        mean_pwr = self.power_probe_blk.level()
-        dbfs = 10.0 * np.log10(mean_pwr) if mean_pwr > 0 else -120.0
-        rssi_dbm = dbfs + self.HACKRF_RSSI_OFFSET
-        self.packet_callback(data, crc_ok, sf, rssi_dbm)
+        # Read per-packet SNR estimated by frame_sync from the preamble
+        snr_sink = self._snr_sinks.get(sf)
+        snr = snr_sink.snr if (snr_sink and snr_sink.snr is not None) else 0.0
+
+        # Derive RSSI from SNR:  RSSI = noise_floor + SNR
+        rssi_dbm = NOISE_FLOOR_DBM + snr
+
+        self.packet_callback(data, crc_ok, sf, rssi_dbm, snr)
