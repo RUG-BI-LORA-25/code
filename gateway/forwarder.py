@@ -49,7 +49,9 @@ class PacketForwarder:
             if len(data) < 4:
                 continue
             ident = data[3]
+            logger.debug(f"[UDP] Received packet: ident=0x{ident:02x} ({len(data)} bytes)")
             if ident == Identifiers.PULL_RESP.value:
+                logger.info(f"[UDP] Got PULL_RESP ({len(data)} bytes)")
                 token = struct.unpack('>H', data[1:3])[0]
                 self._handle_downlink(token, data[4:])
             elif ident == Identifiers.PUSH_ACK.value:
