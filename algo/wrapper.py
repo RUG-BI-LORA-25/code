@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import struct
+from datetime import datetime
 
+from util import notify
 import aiomqtt
 import grpc.aio
 from chirpstack_api.api import device_pb2, device_pb2_grpc
@@ -96,6 +98,14 @@ async def send_downlink(
     resp = await device_client.Enqueue(req, metadata=auth)
     logger.info("Enqueued downlink for %s (DR%d, TX %d dBm): id=%s",
                 dev_eui, cmd.dr, cmd.txPower, resp.id)
+    notify({
+        'event': 'downlink_enqueued',
+        'time': datetime.now().isoformat(),
+        'dev_eui': dev_eui,
+        'dr': cmd.dr,
+        'tx_power': cmd.txPower,
+        'queue_id': resp.id,
+    })
 
 
 async def flush_queue(device_client, dev_eui, auth):

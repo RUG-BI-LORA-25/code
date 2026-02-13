@@ -9,6 +9,7 @@ from datetime import datetime
 from config import (CENTER_FREQ, BANDWIDTH,
                     CHIRPSTACK_HOST, CHIRPSTACK_PORT, GATEWAY_EUI,
                     UPLINK_INTERVAL_S, TDMA_NUM_SLOTS)
+from util import notify
 from receiver import Receiver
 from forwarder import PacketForwarder
 from transmitter import Transmitter
@@ -29,6 +30,7 @@ if not __import__('shutil').which('hackrf_transfer'):
     logger.error("Please install hackrf tools (hackrf_transfer)")
     exit(1)
 
+ 
 def cartof():
     print("""
 ▗▞▀▘▗▞▀▜▌ ▄▄▄ ■   ▄▄▄  ▗▞▀▀▘
@@ -153,7 +155,15 @@ def main():
 
         csv_writers[slot].writerow([now.isoformat(), round(snr, 1), round(rssi, 1), sf, tx_power])
         csv_files[slot].flush()
-
+        # notify
+        notify({
+            'event': 'packet_received',
+            'time': now.isoformat(),
+            'snr': round(snr, 1),
+            'rssi': round(rssi, 1),
+            'sf': sf,
+            'tx_power': tx_power
+        })
         forwarder.send_push_data([{
             'data': data, 'crc_ok': crc_ok, 'rssi': rssi, 'snr': snr, 'sf': sf
         }])
