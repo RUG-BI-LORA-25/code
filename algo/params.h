@@ -8,7 +8,7 @@
 
 #define SF_MIN 7
 #define SF_MAX 12
-#define SF_INITIAL 7
+#define SF_INITIAL 12
 
 #define KP 0.5
 #define KD 0.1

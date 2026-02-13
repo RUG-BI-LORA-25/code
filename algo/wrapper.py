@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import struct
-from datetime import datetime
 
 from util import notify
 import aiomqtt
@@ -50,6 +49,7 @@ class Command(ctypes.Structure):
     _fields_ = [
         ("dr", ctypes.c_int),
         ("txPower", ctypes.c_int),
+        ("calculatedSNR", ctypes.c_double),
     ]
 
 
@@ -100,11 +100,10 @@ async def send_downlink(
                 dev_eui, cmd.dr, cmd.txPower, resp.id)
     notify({
         'event': 'downlink_enqueued',
-        'time': datetime.now().isoformat(),
         'dev_eui': dev_eui,
         'dr': cmd.dr,
         'tx_power': cmd.txPower,
-        'queue_id': resp.id,
+        'calculated_snr': cmd.calculatedSNR
     })
 
 

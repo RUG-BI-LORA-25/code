@@ -35,6 +35,7 @@ typedef struct {
 typedef struct {
     int dr;
     int txPower;
+    double calculatedSNR;
 } Command;
 
 PDState* pd = NULL;
@@ -61,6 +62,15 @@ Command pid(const Uplink* uplink) {
     if (state == NULL) {
         initPDState(uplink->nodeId);
         state = findPDState(uplink->nodeId);
+    }
+
+    int actualSf = DR_TO_SF(uplink->dr);
+    if (actualSf != state->sf) {
+        printf("Node %lu: actual SF%d != expected SF%d, re-syncing\n",
+               uplink->nodeId, actualSf, state->sf);
+        state->sf = actualSf;
+        state->stableCount = 0;
+        state->ePrev = 0.0;
     }
 
     double snr = uplink->rxPower - NOISE_FLOOR_DBM;
@@ -104,6 +114,7 @@ Command pid(const Uplink* uplink) {
     Command cmd = {
         .dr = SF_TO_DR(sf),
         .txPower = (int)txPower,
+        .calculatedSNR = (double)snr
     };
 
     printf(
