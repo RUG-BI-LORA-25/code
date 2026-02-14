@@ -50,6 +50,7 @@ class Command(ctypes.Structure):
         ("dr", ctypes.c_int),
         ("txPower", ctypes.c_int),
         ("calculatedSNR", ctypes.c_double),
+        ("deltaP", ctypes.c_double),
     ]
 
 
@@ -103,7 +104,8 @@ async def send_downlink(
         'dev_eui': dev_eui,
         'dr': cmd.dr,
         'tx_power': cmd.txPower,
-        'calculated_snr': cmd.calculatedSNR
+        'calculated_snr': cmd.calculatedSNR,
+        'deltaP': cmd.deltaP
     })
 
 

@@ -10,3 +10,5 @@
 
 #define DR_TO_SF(dr) (12 - (dr))
 #define SF_TO_DR(sf) (12 - (sf))
+
+#define SNR_INCREASE_THRESHOLD 5

@@ -8,12 +8,12 @@
 #include "macros.h"
 
 static const double SNR_TARGET_PER_SF[6] = {
-    -7.5,   // SF7
-    -10.0,  // SF8
-    -12.5,  // SF9
-    -15.0,  // SF10
-    -17.5,  // SF11
-    -20.0   // SF12
+    -7.5  + SNR_INCREASE_THRESHOLD,   // SF7
+    -10.0 + SNR_INCREASE_THRESHOLD,  // SF8
+    -12.5 + SNR_INCREASE_THRESHOLD,  // SF9
+    -15.0 + SNR_INCREASE_THRESHOLD,  // SF10
+    -17.5 + SNR_INCREASE_THRESHOLD,  // SF11
+    -20.0 + SNR_INCREASE_THRESHOLD   // SF12
 };
 
 typedef struct {
@@ -36,6 +36,7 @@ typedef struct {
     int dr;
     int txPower;
     double calculatedSNR;
+    double deltaP;
 } Command;
 
 PDState* pd = NULL;
@@ -79,7 +80,6 @@ Command pid(const Uplink* uplink) {
 
     double deltaP = KP * error + KD * (error - state->ePrev);
     deltaP = round(deltaP / 2.0) * 2.0;
-
     state->ePrev = error;
 
     double txPower = CLAMP(state->txPower + deltaP, P_MIN, P_MAX);
@@ -114,7 +114,8 @@ Command pid(const Uplink* uplink) {
     Command cmd = {
         .dr = SF_TO_DR(sf),
         .txPower = (int)txPower,
-        .calculatedSNR = (double)snr
+        .calculatedSNR = (double)snr,
+        .deltaP = (double)deltaP
     };
 
     printf(
